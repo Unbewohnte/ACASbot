@@ -273,7 +273,11 @@ func (bot *Bot) HandleURL(msg *tgbotapi.Message) {
 		if !articleContent.Success {
 			status = "фолбэк"
 		}
-		log.Printf("Использован %s метод. Заголовок: %s", status, articleContent.Title)
+		log.Printf("Использован %s метод. Заголовок: %s. Содержание: %s",
+			status,
+			articleContent.Title,
+			articleContent.Content,
+		)
 	}
 
 	var (
@@ -293,13 +297,13 @@ func (bot *Bot) HandleURL(msg *tgbotapi.Message) {
 		// Полный анализ
 		wg.Add(2)
 		go bot.queryTheme(articleContent.Content, &wg, results, errors)
-		go bot.querySentiment(articleContent.Content, bot.conf.OrganizationName, &wg, results, errors)
+		go bot.querySentiment(articleContent.Content, false, &wg, results, errors)
 		wg.Wait()
 
 	case false:
 		// Краткий анализ
 		wg.Add(1)
-		go bot.querySentiment(articleContent.Content, bot.conf.OrganizationName, &wg, results, errors)
+		go bot.querySentiment(articleContent.Content, true, &wg, results, errors)
 		wg.Wait()
 	}
 	close(results)
@@ -362,15 +366,35 @@ func (bot *Bot) queryTheme(content string, wg *sync.WaitGroup, results chan<- st
 }
 
 // Запрос для определения отношения к организации
-func (bot *Bot) querySentiment(content string, orgName string, wg *sync.WaitGroup, results chan<- string, errors chan<- error) {
+func (bot *Bot) querySentiment(
+	content string,
+	shortAnswer bool,
+	wg *sync.WaitGroup,
+	results chan<- string,
+	errors chan<- error,
+) {
 	defer wg.Done()
 
-	prompt := fmt.Sprintf(
-		"Определи отношение к \"%s\" в следующем тексте. Варианты: положительный, информационный, негативный. "+
-			"Обоснуй ответ только одним предложением. Формат ответа:\nОтношение: [вариант]\nОбоснование: [твое объяснение]\n\nТекст:\n%s",
-		orgName,
-		content,
-	)
+	var prompt string
+	if shortAnswer {
+		// prompt = fmt.Sprintf(
+		// 	"Определи отношение к \"%s\" в следующем тексте. Варианты: положительный, информационный, негативный. Отвечай одним словом. В случае, если нет конкретного отношения, отвечай \"информационный\".\n\nТекст: \n%s",
+		// 	bot.conf.OrganizationName,
+		// 	content,
+		// )
+		prompt = fmt.Sprintf(
+			"Определи отношение к \"%s\" в следующем тексте. Варианты: положительный, информационный, негативный. Отвечай одним словом. В случае, если нет конкретного отношения, отвечай \"информационный\". Помни, что новости о решении проблем - позитивны, а новости о проишествиях скорее информационны, чем негативны.\n\nТекст: \n%s",
+			bot.conf.OrganizationName,
+			content,
+		)
+	} else {
+		prompt = fmt.Sprintf(
+			"Определи отношение к \"%s\" в следующем тексте. Варианты: положительный, информационный, негативный. В случае, если нет конкретного отношения, отвечай \"информационный\""+
+				"Обоснуй ответ только одним предложением. Формат ответа:\nОтношение: [вариант]\nОбоснование: [твое объяснение]\n\nТекст:\n%s",
+			bot.conf.OrganizationName,
+			content,
+		)
+	}
 
 	response, err := bot.model.Query(prompt)
 	if err != nil {
@@ -381,8 +405,8 @@ func (bot *Bot) querySentiment(content string, orgName string, wg *sync.WaitGrou
 	// Парсинг структурированного ответа
 	lines := strings.Split(response, "\n")
 	if len(lines) >= 2 {
-		results <- fmt.Sprintf("*%s* (%s)\n%s", lines[0], orgName, lines[1])
+		results <- fmt.Sprintf("*%s* (%s)\n%s", lines[0], bot.conf.OrganizationName, lines[1])
 	} else {
-		results <- fmt.Sprintf("*Отношение к \"%s\":*\n%s", orgName, response)
+		results <- fmt.Sprintf("*Отношение к \"%s\":*\n%s", bot.conf.OrganizationName, response)
 	}
 }
