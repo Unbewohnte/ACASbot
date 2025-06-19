@@ -8,16 +8,11 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
-type ArticleContent struct {
-	Title   string
-	Content string
-	Success bool
-}
-
 type Bot struct {
-	api   *tgbotapi.BotAPI
-	conf  Config
-	model *inference.Inference
+	api      *tgbotapi.BotAPI
+	conf     Config
+	model    *inference.Inference
+	commands []Command
 }
 
 func NewBot(config Config) (*Bot, error) {
@@ -39,6 +34,8 @@ func NewBot(config Config) (*Bot, error) {
 }
 
 func (bot *Bot) Start() error {
+	bot.Init()
+
 	log.Printf("Бот авторизован как %s", bot.api.Self.UserName)
 
 	u := tgbotapi.NewUpdate(0)
@@ -52,13 +49,13 @@ func (bot *Bot) Start() error {
 
 		log.Printf("[%s] %s", update.Message.From.UserName, update.Message.Text)
 
-		if update.Message.Text == "help" || update.Message.Text == "start" {
-			bot.Help(update.Message)
-		} else if strings.HasPrefix(update.Message.Text, "changeorg") {
-			bot.ChangeOrg(update.Message)
-		} else {
-			// Обработка URL
-			bot.Analyze(update.Message)
+		// Обработать команды
+		update.Message.Text = strings.TrimSpace(update.Message.Text)
+		for _, command := range bot.commands {
+			if strings.HasPrefix(update.Message.Text, command.Name) {
+				command.Call(update.Message)
+				break // Дальше не продолжаем
+			}
 		}
 	}
 

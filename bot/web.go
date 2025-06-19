@@ -18,6 +18,12 @@ import (
 	"golang.org/x/text/transform"
 )
 
+type ArticleContent struct {
+	Title   string
+	Content string
+	Success bool
+}
+
 func (bot *Bot) ExtractWebContent(articleURL string) (ArticleContent, error) {
 	client := &http.Client{
 		Timeout: 30 * time.Second,
@@ -168,11 +174,11 @@ func (bot *Bot) extractFallbackContent(doc *goquery.Document) (string, error) {
 	return mainContent, nil
 }
 
-func (bot *Bot) analyzeArticle(msg *tgbotapi.Message) {
+func (bot *Bot) analyzeArticle(url string, msg *tgbotapi.Message) {
 	responseMsg := tgbotapi.NewMessage(msg.Chat.ID, "")
 	responseMsg.ReplyToMessageID = msg.MessageID
 
-	articleContent, err := bot.ExtractWebContent(msg.Text)
+	articleContent, err := bot.ExtractWebContent(url)
 	if err != nil {
 		log.Printf("Ошибка извлечения: %v", err)
 		responseMsg.Text = "❌ Ошибка обработки страницы"
