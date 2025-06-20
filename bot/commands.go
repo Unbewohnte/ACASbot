@@ -140,10 +140,15 @@ func (bot *Bot) Do(message *tgbotapi.Message) error {
 			result.Content.PubDate = &now
 		}
 
+		summary := result.Content.Title
+		if summary == "" {
+			summary = result.TitleFromModel
+		}
+
 		entry := &spreadsheet.SheetEntry{
 			PublicationDate: *result.Content.PubDate,
 			Source:          extractDomain(url),
-			Summary:         result.Theme,
+			Summary:         summary,
 			URL:             url,
 			SentimentType:   result.Sentiment,
 		}

@@ -74,10 +74,16 @@ func (bot *Bot) ExtractWebContent(articleURL string) (ArticleContent, error) {
 	// Пробуем go-readability в первую очередь
 	article, err := readability.FromReader(resp.Body, parsedURL)
 	if err == nil && len(article.TextContent) > 100 {
+		pubTime := article.PublishedTime
+		if pubTime == nil {
+			pubTime = article.ModifiedTime
+		}
+
 		return ArticleContent{
 			Title:   article.Title,
 			Content: article.TextContent,
 			Success: true,
+			PubDate: pubTime,
 		}, nil
 	}
 
@@ -184,7 +190,6 @@ func (bot *Bot) extractFallbackContent(doc *goquery.Document) (string, error) {
 	return mainContent, nil
 }
 
-// web.go
 func (bot *Bot) analyzeArticle(url string) (*ArticleAnalysis, error) {
 	// Извлекаем контент
 	articleContent, err := bot.ExtractWebContent(url)
