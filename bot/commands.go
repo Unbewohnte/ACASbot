@@ -193,3 +193,19 @@ func (bot *Bot) ToggleAnalysis(message *tgbotapi.Message) error {
 
 	return err
 }
+
+func (bot *Bot) About(message *tgbotapi.Message) error {
+	msg := tgbotapi.NewMessage(
+		message.Chat.ID,
+		fmt.Sprintf(
+			`ACAS bot (Article Context And Sentiment bot).
+
+Бот для анализа статей на отношение к определенной организации/личности, а также получения некоторых метаданных: заголовка и текста.
+Результаты анализа могут автоматически добавляться в Google таблицу при настройке.
+`,
+		),
+	)
+
+	_, err := bot.api.Send(msg)
+	return err
+}

@@ -1,6 +1,6 @@
 pull.sh
 bin/
 run.sh
-ACATbot.exe
+ACASbot.exe
 .env
-acatbot-sheet*
+acasbot-sheet*

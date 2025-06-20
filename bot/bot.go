@@ -63,6 +63,12 @@ func (bot *Bot) Init() {
 		Call:        bot.Do,
 	})
 
+	bot.NewCommand(Command{
+		Name:        "about",
+		Description: "Напечатать информацию о боте",
+		Call:        bot.About,
+	})
+
 	if bot.conf.PushToGoogleSheet {
 		sheetsClient, err := spreadsheet.NewGoogleSheetsClient(
 			context.Background(),
