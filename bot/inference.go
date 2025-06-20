@@ -2,7 +2,6 @@ package bot
 
 import (
 	"fmt"
-	"strings"
 	"sync"
 )
 
@@ -18,11 +17,10 @@ func (bot *Bot) queryTitle(content string, wg *sync.WaitGroup, results chan<- st
 
 	response, err := bot.model.Query(prompt)
 	if err != nil {
-		errors <- fmt.Errorf("заголовок: %w", err)
+		errors <- fmt.Errorf("ошибка запроса заголовка: %w", err)
 		return
 	}
-
-	results <- fmt.Sprintf("*Заголовок:* %s", response)
+	results <- response
 }
 
 // Запрос для определения темы
@@ -36,11 +34,10 @@ func (bot *Bot) queryTheme(content string, wg *sync.WaitGroup, results chan<- st
 
 	response, err := bot.model.Query(prompt)
 	if err != nil {
-		errors <- fmt.Errorf("тема: %w", err)
+		errors <- fmt.Errorf("ошибка запроса темы: %w", err)
 		return
 	}
-
-	results <- fmt.Sprintf("*Тема:* %s", response)
+	results <- response
 }
 
 // Запрос для определения отношения к организации
@@ -55,19 +52,14 @@ func (bot *Bot) querySentiment(
 
 	var prompt string
 	if shortAnswer {
-		// prompt = fmt.Sprintf(
-		// 	"Определи отношение к \"%s\" в следующем тексте. Варианты: положительный, информационный, негативный. Отвечай одним словом. В случае, если нет конкретного отношения, отвечай \"информационный\".\n\nТекст: \n%s",
-		// 	bot.conf.OrganizationName,
-		// 	content,
-		// )
 		prompt = fmt.Sprintf(
-			"Определи отношение к \"%s\" в следующем тексте. Варианты: положительный, информационный, негативный. Отвечай одним словом. В случае, если нет конкретного отношения, отвечай \"информационный\". Помни, что новости о решении проблем - позитивны, а новости о проишествиях скорее информационны, чем негативны.\n\nТекст: \n%s",
+			"Определи отношение к \"%s\" в следующем тексте. Варианты: положительный, информационный, отрицательный. Отвечай одним словом. В случае, если нет конкретного отношения, отвечай \"информационный\". Помни, что новости о решении проблем - позитивны, а новости о проишествиях скорее информационны, чем отрицательны.\n\nТекст: \n%s",
 			bot.conf.OrganizationName,
 			content,
 		)
 	} else {
 		prompt = fmt.Sprintf(
-			"Определи отношение к \"%s\" в следующем тексте. Варианты: положительный, информационный, негативный. В случае, если нет конкретного отношения, отвечай \"информационный\""+
+			"Определи отношение к \"%s\" в следующем тексте. Варианты: положительный, информационный, отрицательный. В случае, если нет конкретного отношения, отвечай \"информационный\". Помни, что новости о решении проблем - позитивны, а новости о проишествиях скорее информационны, чем отрицательны. "+
 				"Обоснуй ответ только одним предложением. Формат ответа:\nОтношение: [вариант]\nОбоснование: [твое объяснение]\n\nТекст:\n%s",
 			bot.conf.OrganizationName,
 			content,
@@ -76,15 +68,8 @@ func (bot *Bot) querySentiment(
 
 	response, err := bot.model.Query(prompt)
 	if err != nil {
-		errors <- fmt.Errorf("отношение: %w", err)
+		errors <- fmt.Errorf("ошибка запроса отношения: %w", err)
 		return
 	}
-
-	// Парсинг структурированного ответа
-	lines := strings.Split(response, "\n")
-	if len(lines) >= 2 {
-		results <- fmt.Sprintf("*%s* (%s)\n%s", lines[0], bot.conf.OrganizationName, lines[1])
-	} else {
-		results <- fmt.Sprintf("*Отношение к \"%s\":*\n%s", bot.conf.OrganizationName, response)
-	}
+	results <- response
 }

@@ -13,7 +13,6 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/go-shiori/go-readability"
-	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"golang.org/x/text/encoding/charmap"
 	"golang.org/x/text/transform"
 )
@@ -22,6 +21,17 @@ type ArticleContent struct {
 	Title   string
 	Content string
 	Success bool
+	PubDate *time.Time
+}
+
+type ArticleAnalysis struct {
+	URL            string
+	Content        ArticleContent
+	TitleFromModel string
+	Theme          string
+	Sentiment      string
+	Justification  string
+	Errors         []error
 }
 
 func (bot *Bot) ExtractWebContent(articleURL string) (ArticleContent, error) {
@@ -174,16 +184,17 @@ func (bot *Bot) extractFallbackContent(doc *goquery.Document) (string, error) {
 	return mainContent, nil
 }
 
-func (bot *Bot) analyzeArticle(url string, msg *tgbotapi.Message) {
-	responseMsg := tgbotapi.NewMessage(msg.Chat.ID, "")
-	responseMsg.ReplyToMessageID = msg.MessageID
-
+// web.go
+func (bot *Bot) analyzeArticle(url string) (*ArticleAnalysis, error) {
+	// Извлекаем контент
 	articleContent, err := bot.ExtractWebContent(url)
 	if err != nil {
-		log.Printf("Ошибка извлечения: %v", err)
-		responseMsg.Text = "❌ Ошибка обработки страницы"
-		bot.api.Send(responseMsg)
-		return
+		return nil, err
+	}
+
+	result := &ArticleAnalysis{
+		URL:     url,
+		Content: articleContent,
 	}
 
 	if bot.conf.Debug {
@@ -192,17 +203,12 @@ func (bot *Bot) analyzeArticle(url string, msg *tgbotapi.Message) {
 			status = "фолбэк"
 		}
 		log.Printf("Использован %s метод. Заголовок: %s. Содержание: %s",
-			status,
-			articleContent.Title,
-			articleContent.Content,
-		)
+			status, articleContent.Title, articleContent.Content)
 	}
 
-	var (
-		wg      sync.WaitGroup
-		results = make(chan string, 3)
-		errors  = make(chan error, 3)
-	)
+	var wg sync.WaitGroup
+	results := make(chan string, 3)
+	errors := make(chan error, 3)
 
 	needTitle := !articleContent.Success || articleContent.Title == ""
 	if needTitle {
@@ -212,36 +218,63 @@ func (bot *Bot) analyzeArticle(url string, msg *tgbotapi.Message) {
 
 	switch bot.conf.FullAnalysis {
 	case true:
-		// Полный анализ
 		wg.Add(2)
 		go bot.queryTheme(articleContent.Content, &wg, results, errors)
 		go bot.querySentiment(articleContent.Content, false, &wg, results, errors)
-		wg.Wait()
-
 	case false:
-		// Краткий анализ
 		wg.Add(1)
 		go bot.querySentiment(articleContent.Content, true, &wg, results, errors)
+	}
+
+	// Обработка результатов
+	go func() {
 		wg.Wait()
-	}
-	close(results)
-	close(errors)
+		close(results)
+		close(errors)
+	}()
 
-	// Формирование ответа
-	var response strings.Builder
-	if articleContent.Success && !needTitle {
-		response.WriteString(fmt.Sprintf("*Заголовок:* %s\n\n", articleContent.Title))
-	}
-
+	// Собираем результаты
+	var outputs []string
 	for res := range results {
-		response.WriteString(res + "\n\n")
+		outputs = append(outputs, res)
 	}
 
-	if len(errors) > 0 {
-		response.WriteString("\n⚠️ Некоторые части анализа не удались")
+	// Собираем ошибки
+	for err := range errors {
+		result.Errors = append(result.Errors, err)
 	}
 
-	responseMsg.Text = "📋 *Анализ статьи*\n\n" + response.String()
-	responseMsg.ParseMode = "Markdown"
-	bot.api.Send(responseMsg)
+	// Распределяем результаты по полям
+	resultCounter := 0
+	if needTitle {
+		if len(outputs) > resultCounter {
+			result.TitleFromModel = outputs[resultCounter]
+			resultCounter++
+		}
+	}
+
+	if bot.conf.FullAnalysis {
+		if len(outputs) > resultCounter {
+			result.Theme = outputs[resultCounter]
+			resultCounter++
+		}
+		if len(outputs) > resultCounter {
+			sentimentParts := strings.SplitN(outputs[resultCounter], "\n", 2)
+			if len(sentimentParts) > 0 {
+				result.Sentiment = sentimentParts[0]
+			}
+			if len(sentimentParts) > 1 {
+				result.Justification = sentimentParts[1]
+			}
+		}
+	} else {
+		if len(outputs) > resultCounter {
+			sentimentParts := strings.SplitN(outputs[resultCounter], "\n", 2)
+			if len(sentimentParts) > 0 {
+				result.Sentiment = sentimentParts[0]
+			}
+		}
+	}
+
+	return result, nil
 }

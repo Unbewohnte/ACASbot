@@ -2,30 +2,63 @@ package main
 
 import (
 	"Unbewohnte/ACATbot/bot"
+	"Unbewohnte/ACATbot/spreadsheet"
 	"flag"
+	"io"
 	"log"
+	"os"
+	"strconv"
+
+	"github.com/joho/godotenv"
 )
 
 var (
-	telegramAPIToken = flag.String("tgToken", "token", "API токен бота в телеграм")
-	organizationName = flag.String("organization", "Человечество", "Организация/человек, отношение к которой/которому будет определяться")
-	ollamaModel      = flag.String("model", "lakomoor/vikhr-llama-3.2-1b-instruct:1b", "Имя LLM, используемое ollama для инференции")
-	maxContentSize   = flag.Uint("maxContentSize", 10000, "Максимальное количество символов статьи для разбора")
-	debug            = flag.Bool("debug", true, "Печатать больше информации во время работы")
-	fullAnalysis     = flag.Bool("fullAnalysis", false, "Проводить полный анализ статей")
+	debug = flag.Bool("debug", true, "Печатать больше информации во время работы")
 )
 
-func main() {
+func init() {
+	err := godotenv.Load()
+	if err != nil {
+		log.Panic(err)
+	}
+
 	flag.Parse()
+}
+
+func main() {
+	var credentialsJSON []byte
+	if os.Getenv("PUSH_TO_SHEET") == "true" {
+		file, err := os.Open(os.Getenv("SHEET_CREDENTIALS_FILE"))
+		if err != nil {
+			log.Panic(err)
+		}
+		defer file.Close()
+
+		credentialsJSON, err = io.ReadAll(file)
+		if err != nil {
+			log.Panic(err)
+		}
+	}
+
+	maxContentSize, err := strconv.Atoi(os.Getenv("MAX_CONTENT_SIZE"))
+	if err != nil {
+		log.Panic(err)
+	}
 
 	bot, err := bot.NewBot(
 		bot.NewConfig(
-			*telegramAPIToken,
-			*organizationName,
-			*ollamaModel,
-			*maxContentSize,
+			os.Getenv("TELEGRAM_TOKEN"),
+			os.Getenv("ORGANIZATION"),
+			os.Getenv("OLLAMA_MODEL"),
+			uint(maxContentSize),
 			*debug,
-			*fullAnalysis,
+			os.Getenv("FULL_ANALYSIS") == "true",
+			os.Getenv("PUSH_TO_SHEET") == "true",
+			spreadsheet.NewConfig(
+				credentialsJSON,
+				os.Getenv("SHEET_ID"),
+				os.Getenv("SHEET_NAME"),
+			),
 		),
 	)
 	if err != nil {

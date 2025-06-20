@@ -1,8 +1,12 @@
 package bot
 
 import (
+	"Unbewohnte/ACATbot/spreadsheet"
 	"fmt"
+	"log"
+	"net/url"
 	"strings"
+	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -16,34 +20,6 @@ type Command struct {
 
 func (bot *Bot) NewCommand(cmd Command) {
 	bot.commands = append(bot.commands, cmd)
-}
-
-func (bot *Bot) Init() {
-	bot.NewCommand(Command{
-		Name:        "help",
-		Description: "Напечатать вспомогательное сообщение",
-		Call:        bot.Help,
-	})
-
-	bot.NewCommand(Command{
-		Name:        "changeorg",
-		Description: "Изменить имя организации, отношение к которой будет анализировано.",
-		Example:     "changeorg Человечество",
-		Call:        bot.ChangeOrg,
-	})
-
-	bot.NewCommand(Command{
-		Name:        "toggleanalysis",
-		Description: "Включить или выключить полный анализ статей",
-		Call:        bot.ToggleAnalysis,
-	})
-
-	bot.NewCommand(Command{
-		Name:        "do",
-		Description: "Анализировать статью",
-		Example:     "do https://example.com/article2",
-		Call:        bot.Do,
-	})
 }
 
 func (bot *Bot) Help(message *tgbotapi.Message) error {
@@ -90,34 +66,113 @@ func (bot *Bot) ChangeOrg(message *tgbotapi.Message) error {
 	return err
 }
 
-func (bot *Bot) Do(message *tgbotapi.Message) error {
-	var err error = nil
+func (bot *Bot) formatAnalysisResult(result *ArticleAnalysis) string {
+	var response strings.Builder
 
+	// Добавляем заголовок
+	if result.Content.Success && result.Content.Title != "" {
+		response.WriteString(fmt.Sprintf("*Заголовок:* %s\n\n", result.Content.Title))
+	} else if result.TitleFromModel != "" {
+		response.WriteString(fmt.Sprintf("*Заголовок:* %s\n\n", result.TitleFromModel))
+	}
+
+	// Добавляем тему (если есть)
+	if bot.conf.FullAnalysis && result.Theme != "" {
+		response.WriteString(fmt.Sprintf("*Тема:* %s\n\n", result.Theme))
+	}
+
+	// Добавляем отношение
+	if result.Sentiment != "" {
+		response.WriteString(fmt.Sprintf("*Отношение:* %s\n", result.Sentiment))
+		if result.Justification != "" {
+			response.WriteString(fmt.Sprintf("*Обоснование:* %s\n", result.Justification))
+		}
+	}
+
+	// Добавляем ошибки (если есть)
+	if len(result.Errors) > 0 {
+		response.WriteString("\n⚠️ *Ошибки при анализе:*\n")
+		for _, err := range result.Errors {
+			response.WriteString(fmt.Sprintf("- %s\n", err.Error()))
+		}
+	}
+
+	return response.String()
+}
+
+func (bot *Bot) Do(message *tgbotapi.Message) error {
 	parts := strings.Split(message.Text, " ")
 	if len(parts) < 2 {
-		msg := tgbotapi.NewMessage(
-			message.Chat.ID,
-			"Вы не указали URL",
-		)
+		msg := tgbotapi.NewMessage(message.Chat.ID, "Вы не указали URL")
 		msg.ReplyToMessageID = message.MessageID
-		_, err = bot.api.Send(msg)
+		_, err := bot.api.Send(msg)
 		return err
 	}
 
 	url := parts[1]
-
-	if strings.HasPrefix(url, "http") {
-		bot.analyzeArticle(url, message)
-	} else {
-		msg := tgbotapi.NewMessage(
-			message.Chat.ID,
-			"Пожалуйста, отправьте действительный URL, начинающийся с http/https",
-		)
+	if !strings.HasPrefix(url, "http") {
+		msg := tgbotapi.NewMessage(message.Chat.ID, "Пожалуйста, отправьте действительный URL, начинающийся с http/https")
 		msg.ReplyToMessageID = message.MessageID
-		_, err = bot.api.Send(msg)
+		_, err := bot.api.Send(msg)
+		return err
 	}
 
-	return err
+	// Анализируем статью
+	result, err := bot.analyzeArticle(url)
+	if err != nil {
+		errorMsg := tgbotapi.NewMessage(message.Chat.ID, "❌ Ошибка обработки страницы: "+err.Error())
+		errorMsg.ReplyToMessageID = message.MessageID
+		bot.api.Send(errorMsg)
+		return err
+	}
+
+	// Форматируем ответ
+	responseText := bot.formatAnalysisResult(result)
+	msg := tgbotapi.NewMessage(message.Chat.ID, "📋 *Результаты анализа*\n\n"+responseText)
+	msg.ParseMode = "Markdown"
+	msg.ReplyToMessageID = message.MessageID
+	bot.api.Send(msg)
+
+	// Добавляем в Google Sheets
+	if bot.conf.PushToGoogleSheet {
+		if result.Content.PubDate == nil {
+			now := time.Now()
+			result.Content.PubDate = &now
+		}
+
+		entry := &spreadsheet.SheetEntry{
+			PublicationDate: *result.Content.PubDate,
+			Source:          extractDomain(url),
+			Summary:         result.Theme,
+			URL:             url,
+			SentimentType:   result.Sentiment,
+		}
+
+		if err := bot.sheet.AddAnalysisResultWithRetry(entry, 3); err != nil {
+			log.Printf("Ошибка добавления в Google Sheet: %v", err)
+			msg := tgbotapi.NewMessage(
+				message.Chat.ID,
+				"Ошибка внесения изменений в таблицу: "+err.Error(),
+			)
+			bot.api.Send(msg)
+		} else {
+			msg := tgbotapi.NewMessage(
+				message.Chat.ID,
+				"Запись успешно добавлена в таблицу!",
+			)
+			bot.api.Send(msg)
+		}
+	}
+
+	return nil
+}
+
+func extractDomain(urlStr string) string {
+	u, err := url.Parse(urlStr)
+	if err != nil {
+		return urlStr
+	}
+	return u.Host
 }
 
 func (bot *Bot) ToggleAnalysis(message *tgbotapi.Message) error {
