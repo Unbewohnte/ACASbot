@@ -112,6 +112,26 @@ func (bot *Bot) Start() error {
 
 		log.Printf("[%s] %s", update.Message.From.UserName, update.Message.Text)
 
+		// Проверка на возможность дальнейшего общения с данным пользователем
+		if !bot.conf.Public {
+			var allowed bool = false
+			for _, allowedID := range bot.conf.AllowedUserIDs {
+				if update.Message.From.ID == allowedID {
+					allowed = true
+					break
+				}
+			}
+
+			if !allowed {
+				// Не пропускаем дальше
+				msg := tgbotapi.NewMessage(
+					update.Message.Chat.ID,
+					"Вам не разрешено пользоваться этим ботом!",
+				)
+				bot.api.Send(msg)
+			}
+		}
+
 		// Обработать команды
 		update.Message.Text = strings.TrimSpace(update.Message.Text)
 		for _, command := range bot.commands {
