@@ -2,12 +2,14 @@ package main
 
 import (
 	"Unbewohnte/ACATbot/bot"
+	"Unbewohnte/ACATbot/conf"
 	"Unbewohnte/ACATbot/spreadsheet"
 	"flag"
 	"io"
 	"log"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -45,8 +47,17 @@ func main() {
 		log.Panic(err)
 	}
 
+	allowedUsers := []int64{}
+	for _, idStr := range strings.Split(os.Getenv("ALLOWED_TG_USERS_IDS"), ",") {
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil {
+			log.Panic("Найден неверный ID пользователя")
+		}
+		allowedUsers = append(allowedUsers, id)
+	}
+
 	bot, err := bot.NewBot(
-		bot.NewConfig(
+		conf.NewConfig(
 			os.Getenv("TELEGRAM_TOKEN"),
 			os.Getenv("ORGANIZATION"),
 			os.Getenv("OLLAMA_MODEL"),
@@ -59,6 +70,8 @@ func main() {
 				os.Getenv("SHEET_ID"),
 				os.Getenv("SHEET_NAME"),
 			),
+			os.Getenv("IS_PUBLIC") == "true",
+			allowedUsers,
 		),
 	)
 	if err != nil {

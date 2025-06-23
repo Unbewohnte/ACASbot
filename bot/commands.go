@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -74,6 +75,11 @@ func (bot *Bot) formatAnalysisResult(result *ArticleAnalysis) string {
 		response.WriteString(fmt.Sprintf("*Заголовок:* %s\n\n", result.Content.Title))
 	} else if result.TitleFromModel != "" {
 		response.WriteString(fmt.Sprintf("*Заголовок:* %s\n\n", result.TitleFromModel))
+	}
+
+	// Дата публикации
+	if result.Content.PubDate != nil {
+		response.WriteString(fmt.Sprintf("*Дата публикации:* %s\n\n", result.Content.PubDate))
 	}
 
 	// Добавляем тему (если есть)
@@ -207,5 +213,60 @@ func (bot *Bot) About(message *tgbotapi.Message) error {
 	)
 
 	_, err := bot.api.Send(msg)
+	return err
+}
+
+func (bot *Bot) AddUser(message *tgbotapi.Message) error {
+	parts := strings.Split(strings.TrimSpace(message.Text), " ")
+	if len(parts) < 2 {
+		msg := tgbotapi.NewMessage(
+			message.Chat.ID,
+			"ID пользователя не указан",
+		)
+		msg.ReplyToMessageID = message.MessageID
+		bot.api.Send(msg)
+		return nil
+	}
+
+	id, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		msg := tgbotapi.NewMessage(
+			message.Chat.ID,
+			"Неверный ID пользователя",
+		)
+		msg.ReplyToMessageID = message.MessageID
+		bot.api.Send(msg)
+		return nil
+	}
+
+	bot.conf.AllowedUserIDs = append(bot.conf.AllowedUserIDs, id)
+
+	// Добавим в .env
+
+	msg := tgbotapi.NewMessage(
+		message.Chat.ID,
+		"Пользователь успешно добавлен!",
+	)
+	msg.ReplyToMessageID = message.MessageID
+	_, err = bot.api.Send(msg)
+
+	return err
+}
+
+func (bot *Bot) TogglePublicity(message *tgbotapi.Message) error {
+	var err error = nil
+
+	if bot.conf.Public {
+		bot.conf.Public = false
+		_, err = bot.api.Send(
+			tgbotapi.NewMessage(message.Chat.ID, "Доступ к боту теперь только у избранных."),
+		)
+	} else {
+		bot.conf.Public = true
+		_, err = bot.api.Send(
+			tgbotapi.NewMessage(message.Chat.ID, "Доступ к боту теперь у всех."),
+		)
+	}
+
 	return err
 }

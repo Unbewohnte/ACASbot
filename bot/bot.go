@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"Unbewohnte/ACATbot/conf"
 	"Unbewohnte/ACATbot/inference"
 	"Unbewohnte/ACATbot/spreadsheet"
 	"context"
@@ -12,13 +13,13 @@ import (
 
 type Bot struct {
 	api      *tgbotapi.BotAPI
-	conf     Config
+	conf     *conf.Config
 	model    *inference.Inference
 	commands []Command
 	sheet    *spreadsheet.GoogleSheetsClient
 }
 
-func NewBot(config Config) (*Bot, error) {
+func NewBot(config *conf.Config) (*Bot, error) {
 	model, err := inference.NewInference(config.OllamaModel)
 	if err != nil {
 		return nil, err
@@ -67,6 +68,19 @@ func (bot *Bot) Init() {
 		Name:        "about",
 		Description: "Напечатать информацию о боте",
 		Call:        bot.About,
+	})
+
+	bot.NewCommand(Command{
+		Name:        "togglepublic",
+		Description: "Включить или выключить публичный/приватный доступ к боту",
+		Call:        bot.TogglePublicity,
+	})
+
+	bot.NewCommand(Command{
+		Name:        "adduser",
+		Description: "Добавить доступ к боту определенному пользователю по ID (напишите боту @userinfobot для получения своего ID)",
+		Example:     "adduser 5293210034",
+		Call:        bot.AddUser,
 	})
 
 	if bot.conf.PushToGoogleSheet {
