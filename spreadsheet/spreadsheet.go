@@ -11,9 +11,9 @@ import (
 )
 
 type Config struct {
-	CredentialsJSON []byte
-	SpreadsheetID   string
-	SheetName       string
+	CredentialsJSON []byte `json:"credentails"`
+	SpreadsheetID   string `json:"spreadsheet_id"`
+	SheetName       string `json:"sheet_name"`
 }
 
 func NewConfig(credentialsJSON []byte,

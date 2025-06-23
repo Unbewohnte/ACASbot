@@ -1,7 +1,7 @@
 package bot
 
 import (
-	"Unbewohnte/ACATbot/spreadsheet"
+	"Unbewohnte/ACASbot/spreadsheet"
 	"fmt"
 	"log"
 	"net/url"
@@ -63,6 +63,9 @@ func (bot *Bot) ChangeOrg(message *tgbotapi.Message) error {
 
 	msg.ReplyToMessageID = message.MessageID
 	_, err := bot.api.Send(msg)
+
+	// Обновляем конфигурационный файл
+	bot.conf.Update()
 
 	return err
 }
@@ -197,6 +200,9 @@ func (bot *Bot) ToggleAnalysis(message *tgbotapi.Message) error {
 		_, err = bot.api.Send(tgbotapi.NewMessage(message.Chat.ID, "Полный анализ включен"))
 	}
 
+	// Обновляем конфигурационный файл
+	bot.conf.Update()
+
 	return err
 }
 
@@ -241,7 +247,8 @@ func (bot *Bot) AddUser(message *tgbotapi.Message) error {
 
 	bot.conf.AllowedUserIDs = append(bot.conf.AllowedUserIDs, id)
 
-	// Добавим в .env
+	// Сохраним в файл
+	bot.conf.Update()
 
 	msg := tgbotapi.NewMessage(
 		message.Chat.ID,
@@ -267,6 +274,9 @@ func (bot *Bot) TogglePublicity(message *tgbotapi.Message) error {
 			tgbotapi.NewMessage(message.Chat.ID, "Доступ к боту теперь у всех."),
 		)
 	}
+
+	// Обновляем конфигурационный файл
+	bot.conf.Update()
 
 	return err
 }

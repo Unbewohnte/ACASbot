@@ -1,9 +1,9 @@
 package bot
 
 import (
-	"Unbewohnte/ACATbot/conf"
-	"Unbewohnte/ACATbot/inference"
-	"Unbewohnte/ACATbot/spreadsheet"
+	"Unbewohnte/ACASbot/conf"
+	"Unbewohnte/ACASbot/inference"
+	"Unbewohnte/ACASbot/spreadsheet"
 	"context"
 	"log"
 	"strings"

@@ -1,11 +1,14 @@
 package conf
 
 import (
-	"Unbewohnte/ACATbot/spreadsheet"
+	"Unbewohnte/ACASbot/spreadsheet"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 )
+
+var CONFIG_PATH string = ""
 
 type Config struct {
 	ApiToken          string             `json:"api_token"`
@@ -16,33 +19,26 @@ type Config struct {
 	FullAnalysis      bool               `json:"full_analysis"`
 	PushToGoogleSheet bool               `json:"push_to_google_sheet"`
 	SheetConfig       spreadsheet.Config `json:"sheet_config"`
+	CredentialsFile   string             `json:"credentials_file"`
 	Public            bool               `json:"is_public"`
 	AllowedUserIDs    []int64            `json:"allowed_user_ids"`
 }
 
-func NewConfig(
-	apiToken string,
-	organizationName string,
-	ollamaModel string,
-	maxContentSize uint,
-	debug bool,
-	fullAnalysis bool,
-	pushToSheet bool,
-	sheetsConf spreadsheet.Config,
-	public bool,
-	allowedUserIDs []int64,
-) *Config {
+func Default() *Config {
 	return &Config{
-		ApiToken:          apiToken,
-		OrganizationName:  organizationName,
-		OllamaModel:       ollamaModel,
-		MaxContentSize:    maxContentSize,
-		Debug:             debug,
-		FullAnalysis:      fullAnalysis,
-		PushToGoogleSheet: pushToSheet,
-		SheetConfig:       sheetsConf,
-		Public:            public,
-		AllowedUserIDs:    allowedUserIDs,
+		ApiToken:          "tg_api_token",
+		OrganizationName:  "Жители района, район",
+		OllamaModel:       "lakomoor/vikhr-llama-3.2-1b-instruct:1b",
+		MaxContentSize:    300,
+		Debug:             false,
+		FullAnalysis:      false,
+		PushToGoogleSheet: true,
+		SheetConfig: spreadsheet.NewConfig(
+			nil, "spreadsheet_id", "Sheet 1",
+		),
+		CredentialsFile: "secret.json",
+		Public:          true,
+		AllowedUserIDs:  []int64{},
 	}
 }
 
@@ -53,12 +49,19 @@ func (conf *Config) Save(filepath string) error {
 	}
 	defer file.Close()
 
-	jsonBytes, err := json.MarshalIndent(conf, "", "\t")
+	// Убираем ключи доступа к таблицам
+	c := *conf
+	c.SheetConfig.CredentialsJSON = nil
+
+	jsonBytes, err := json.MarshalIndent(&c, "", "\t")
 	if err != nil {
 		return err
 	}
 
 	_, err = file.Write(jsonBytes)
+
+	// Запоминаем, куда сохранили
+	CONFIG_PATH = filepath
 
 	return err
 }
@@ -81,5 +84,17 @@ func From(filepath string) (*Config, error) {
 		return nil, err
 	}
 
+	// Запоминаем, откуда взяли
+	CONFIG_PATH = filepath
+
 	return &conf, nil
+}
+
+// Обновляет конфигурационный файл
+func (conf *Config) Update() error {
+	if CONFIG_PATH == "" {
+		return errors.New("неизвестен путь к конфигурационному файлу")
+	}
+
+	return conf.Save(CONFIG_PATH)
 }

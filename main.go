@@ -1,79 +1,48 @@
 package main
 
 import (
-	"Unbewohnte/ACATbot/bot"
-	"Unbewohnte/ACATbot/conf"
-	"Unbewohnte/ACATbot/spreadsheet"
-	"flag"
+	"Unbewohnte/ACASbot/bot"
+	"Unbewohnte/ACASbot/conf"
 	"io"
 	"log"
 	"os"
-	"strconv"
-	"strings"
-
-	"github.com/joho/godotenv"
 )
 
-var (
-	debug = flag.Bool("debug", true, "Печатать больше информации во время работы")
-)
+const CONFIG_NAME string = "config.json"
+
+var CONFIG *conf.Config
 
 func init() {
-	err := godotenv.Load()
+	var err error
+	CONFIG, err = conf.From(CONFIG_NAME)
 	if err != nil {
-		log.Panic(err)
+		log.Println("Не удалось открыть конфигурационный файл: " + err.Error() + ". Создаем новый...")
+		CONFIG = conf.Default()
+		err = CONFIG.Save(CONFIG_NAME)
+		if err != nil {
+			log.Panic("Не получилось создать новый конфигурационный файл: " + err.Error())
+		}
+		os.Exit(0)
 	}
 
-	flag.Parse()
-}
-
-func main() {
-	var credentialsJSON []byte
-	if os.Getenv("PUSH_TO_SHEET") == "true" {
-		file, err := os.Open(os.Getenv("SHEET_CREDENTIALS_FILE"))
+	if CONFIG.PushToGoogleSheet {
+		file, err := os.Open(CONFIG.CredentialsFile)
 		if err != nil {
 			log.Panic(err)
 		}
 		defer file.Close()
 
-		credentialsJSON, err = io.ReadAll(file)
+		credentialsJSON, err := io.ReadAll(file)
 		if err != nil {
 			log.Panic(err)
 		}
-	}
 
-	maxContentSize, err := strconv.Atoi(os.Getenv("MAX_CONTENT_SIZE"))
-	if err != nil {
-		log.Panic(err)
+		CONFIG.SheetConfig.CredentialsJSON = credentialsJSON
 	}
+}
 
-	allowedUsers := []int64{}
-	for _, idStr := range strings.Split(os.Getenv("ALLOWED_TG_USERS_IDS"), ",") {
-		id, err := strconv.ParseInt(idStr, 10, 64)
-		if err != nil {
-			log.Panic("Найден неверный ID пользователя")
-		}
-		allowedUsers = append(allowedUsers, id)
-	}
-
-	bot, err := bot.NewBot(
-		conf.NewConfig(
-			os.Getenv("TELEGRAM_TOKEN"),
-			os.Getenv("ORGANIZATION"),
-			os.Getenv("OLLAMA_MODEL"),
-			uint(maxContentSize),
-			*debug,
-			os.Getenv("FULL_ANALYSIS") == "true",
-			os.Getenv("PUSH_TO_SHEET") == "true",
-			spreadsheet.NewConfig(
-				credentialsJSON,
-				os.Getenv("SHEET_ID"),
-				os.Getenv("SHEET_NAME"),
-			),
-			os.Getenv("IS_PUBLIC") == "true",
-			allowedUsers,
-		),
-	)
+func main() {
+	bot, err := bot.NewBot(CONFIG)
 	if err != nil {
 		log.Panic(err)
 	}

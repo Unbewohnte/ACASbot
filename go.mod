@@ -1,11 +1,10 @@
-module Unbewohnte/ACATbot
+module Unbewohnte/ACASbot
 
 go 1.24.3
 
 require (
 	github.com/go-shiori/go-readability v0.0.0-20250217085726-9f5bf5ca7612
 	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
-	github.com/joho/godotenv v1.5.1
 	golang.org/x/text v0.26.0
 	google.golang.org/api v0.238.0
 )
