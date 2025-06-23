@@ -1,6 +1,6 @@
 all: clean
 	mkdir -p bin
-	go build && mv ACATbot* bin/
+	go build && mv ACASbot* bin/
 
 clean:
-	rm -rf bin/ACATbot ACATBOT*
+	rm -rf bin/ACASbot ACASBOT*
