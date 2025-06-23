@@ -27,9 +27,9 @@ func (bot *Bot) Help(message *tgbotapi.Message) error {
 	var helpMessage string
 
 	for _, command := range bot.commands {
-		helpMessage += fmt.Sprintf("\nКоманда: \"%s\"\nОписание: %s\n", command.Name, command.Description)
+		helpMessage += fmt.Sprintf("\n*Команда:* \"%s\"\n*Описание:* %s\n", command.Name, command.Description)
 		if command.Example != "" {
-			helpMessage += fmt.Sprintf("Пример: %s\n", command.Example)
+			helpMessage += fmt.Sprintf("*Пример:* %s\n", command.Example)
 		}
 	}
 
@@ -58,7 +58,7 @@ func (bot *Bot) ChangeOrg(message *tgbotapi.Message) error {
 	bot.conf.OrganizationName = strings.Join(parts[1:], " ")
 	msg := tgbotapi.NewMessage(
 		message.Chat.ID,
-		fmt.Sprintf("Организация сменена на \"%s\"", bot.conf.OrganizationName),
+		fmt.Sprintf("Организация сменена на *\"%s\"*", bot.conf.OrganizationName),
 	)
 
 	msg.ReplyToMessageID = message.MessageID
@@ -209,13 +209,11 @@ func (bot *Bot) ToggleAnalysis(message *tgbotapi.Message) error {
 func (bot *Bot) About(message *tgbotapi.Message) error {
 	msg := tgbotapi.NewMessage(
 		message.Chat.ID,
-		fmt.Sprintf(
-			`ACAS bot (Article Context And Sentiment bot).
+		`ACAS bot (Article Context And Sentiment bot).
 
 Бот для анализа статей на отношение к определенной организации/личности, а также получения некоторых метаданных: заголовка и текста.
 Результаты анализа могут автоматически добавляться в Google таблицу при настройке.
 `,
-		),
 	)
 
 	_, err := bot.api.Send(msg)

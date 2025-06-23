@@ -129,6 +129,10 @@ func (bot *Bot) Start() error {
 					"Вам не разрешено пользоваться этим ботом!",
 				)
 				bot.api.Send(msg)
+
+				if bot.conf.Debug {
+					log.Printf("Не допустили к общению пользователя %v", update.Message.From.ID)
+				}
 			}
 		}
 
