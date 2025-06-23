@@ -83,6 +83,13 @@ func (bot *Bot) Init() {
 		Call:        bot.AddUser,
 	})
 
+	bot.NewCommand(Command{
+		Name:        "rmuser",
+		Description: "Убрать доступ к боту определенному пользователю по ID",
+		Example:     "rmuser 5293210034",
+		Call:        bot.RemoveUser,
+	})
+
 	if bot.conf.PushToGoogleSheet {
 		sheetsClient, err := spreadsheet.NewGoogleSheetsClient(
 			context.Background(),

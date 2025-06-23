@@ -33,12 +33,12 @@ func (bot *Bot) Help(message *tgbotapi.Message) error {
 		}
 	}
 
-	_, err := bot.api.Send(
-		tgbotapi.NewMessage(
-			message.Chat.ID,
-			helpMessage,
-		),
+	msg := tgbotapi.NewMessage(
+		message.Chat.ID,
+		helpMessage,
 	)
+	msg.ParseMode = "Markdown"
+	_, err := bot.api.Send(msg)
 
 	return err
 }
@@ -275,6 +275,52 @@ func (bot *Bot) TogglePublicity(message *tgbotapi.Message) error {
 
 	// Обновляем конфигурационный файл
 	bot.conf.Update()
+
+	return err
+}
+
+func (bot *Bot) RemoveUser(message *tgbotapi.Message) error {
+	parts := strings.Split(strings.TrimSpace(message.Text), " ")
+	if len(parts) < 2 {
+		msg := tgbotapi.NewMessage(
+			message.Chat.ID,
+			"ID пользователя не указан",
+		)
+		msg.ReplyToMessageID = message.MessageID
+		bot.api.Send(msg)
+		return nil
+	}
+
+	id, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		msg := tgbotapi.NewMessage(
+			message.Chat.ID,
+			"Неверный ID пользователя",
+		)
+		msg.ReplyToMessageID = message.MessageID
+		bot.api.Send(msg)
+		return nil
+	}
+
+	tmp := bot.conf.AllowedUserIDs
+	bot.conf.AllowedUserIDs = []int64{}
+	for _, allowedID := range tmp {
+		if allowedID == id {
+			continue
+		}
+
+		bot.conf.AllowedUserIDs = append(bot.conf.AllowedUserIDs, allowedID)
+	}
+
+	// Сохраним в файл
+	bot.conf.Update()
+
+	msg := tgbotapi.NewMessage(
+		message.Chat.ID,
+		"Пользователь успешно удален!",
+	)
+	msg.ReplyToMessageID = message.MessageID
+	_, err = bot.api.Send(msg)
 
 	return err
 }
