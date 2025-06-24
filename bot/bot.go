@@ -140,6 +140,8 @@ func (bot *Bot) Start() error {
 				if bot.conf.Debug {
 					log.Printf("Не допустили к общению пользователя %v", update.Message.From.ID)
 				}
+
+				continue
 			}
 		}
 
