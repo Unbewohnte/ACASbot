@@ -103,6 +103,20 @@ func (bot *Bot) Init() {
 		Call:        bot.PrintConfig,
 	})
 
+	bot.NewCommand(Command{
+		Name:        "changesheetname",
+		Description: "Изменить наименование листа таблицы",
+		Example:     "changesheetname Sheet 2",
+		Call:        bot.ChangeSheetName,
+	})
+
+	bot.NewCommand(Command{
+		Name:        "changesheetid",
+		Description: "Изменить идентификатор таблицы",
+		Example:     "changesheetid s0m3_1d_l1k3_k4DGHJd1",
+		Call:        bot.ChangeSpreadhseetID,
+	})
+
 	if bot.conf.PushToGoogleSheet {
 		sheetsClient, err := spreadsheet.NewGoogleSheetsClient(
 			context.Background(),

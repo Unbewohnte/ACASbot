@@ -47,8 +47,8 @@ func NewConfig(credentialsJSON []byte,
 
 type GoogleSheetsClient struct {
 	service       *sheets.Service
-	spreadsheetID string
-	sheetName     string
+	SpreadsheetID string
+	SheetName     string
 }
 
 func NewGoogleSheetsClient(ctx context.Context, conf Config) (*GoogleSheetsClient, error) {
@@ -70,8 +70,8 @@ func NewGoogleSheetsClient(ctx context.Context, conf Config) (*GoogleSheetsClien
 
 	return &GoogleSheetsClient{
 		service:       srv,
-		spreadsheetID: conf.SpreadsheetID,
-		sheetName:     conf.SheetName,
+		SpreadsheetID: conf.SpreadsheetID,
+		SheetName:     conf.SheetName,
 	}, nil
 }
 
@@ -101,19 +101,19 @@ func (gsc *GoogleSheetsClient) AddAnalysisResult(entry *SheetEntry) error {
 	}
 
 	// Определяем диапазон для добавления (последняя строка)
-	rangeData := gsc.sheetName + "!A:A"
-	resp, err := gsc.service.Spreadsheets.Values.Get(gsc.spreadsheetID, rangeData).Do()
+	rangeData := gsc.SheetName + "!A:A"
+	resp, err := gsc.service.Spreadsheets.Values.Get(gsc.SpreadsheetID, rangeData).Do()
 	if err != nil {
 		return fmt.Errorf("не удалось получить данные: %w", err)
 	}
 
 	// Вычисляем следующую пустую строку
 	nextRow := len(resp.Values) + 1
-	insertRange := fmt.Sprintf("%s!A%d:E%d", gsc.sheetName, nextRow, nextRow)
+	insertRange := fmt.Sprintf("%s!A%d:E%d", gsc.SheetName, nextRow, nextRow)
 
 	// Выполняем запрос
 	_, err = gsc.service.Spreadsheets.Values.Append(
-		gsc.spreadsheetID,
+		gsc.SpreadsheetID,
 		insertRange,
 		row,
 	).ValueInputOption("USER_ENTERED").Do()
@@ -150,8 +150,8 @@ func (gsc *GoogleSheetsClient) BatchAddResults(entries []*SheetEntry) error {
 	}
 
 	_, err := gsc.service.Spreadsheets.Values.Append(
-		gsc.spreadsheetID,
-		gsc.sheetName+"!A:E",
+		gsc.SpreadsheetID,
+		gsc.SheetName+"!A:E",
 		&vr,
 	).ValueInputOption("USER_ENTERED").Do()
 

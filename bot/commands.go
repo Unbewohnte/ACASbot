@@ -39,7 +39,7 @@ func (bot *Bot) Help(message *tgbotapi.Message) {
 	for _, command := range bot.commands {
 		helpMessage += fmt.Sprintf("\n*Команда:* \"%s\"\n*Описание:* %s\n", command.Name, command.Description)
 		if command.Example != "" {
-			helpMessage += fmt.Sprintf("*Пример:* %s\n", command.Example)
+			helpMessage += fmt.Sprintf("*Пример:* `%s`\n", command.Example)
 		}
 	}
 
@@ -325,7 +325,7 @@ func (bot *Bot) RemoveUser(message *tgbotapi.Message) {
 		"Пользователь успешно удален!",
 	)
 	msg.ReplyToMessageID = message.MessageID
-	_, err = bot.api.Send(msg)
+	bot.api.Send(msg)
 }
 
 func (bot *Bot) ChangeMaxContentSize(message *tgbotapi.Message) {
@@ -378,13 +378,15 @@ func (bot *Bot) PrintConfig(message *tgbotapi.Message) {
 	var response string = ""
 
 	response += "*Нынешняя конфигурация*: \n"
-	response += fmt.Sprintf("*Наименование организации*: %v\n", bot.conf.OrganizationName)
-	response += fmt.Sprintf("*Полный анализ?*: %v\n", bot.conf.FullAnalysis)
-	response += fmt.Sprintf("*Лимит символов для анализа*: %v\n", bot.conf.MaxContentSize)
-	response += fmt.Sprintf("*LLM*: %v\n", bot.conf.OllamaModel)
-	response += fmt.Sprintf("*Отправлять в Google таблицу?*: %v\n", bot.conf.PushToGoogleSheet)
-	response += fmt.Sprintf("*Общедоступный?*: %v\n", bot.conf.Public)
-	response += fmt.Sprintf("*Разрешенные пользователи*: %+v\n", bot.conf.AllowedUserIDs)
+	response += fmt.Sprintf("*Наименование организации*: `%v`\n", bot.conf.OrganizationName)
+	response += fmt.Sprintf("*Полный анализ?*: `%v`\n", bot.conf.FullAnalysis)
+	response += fmt.Sprintf("*Лимит символов для анализа*: `%v`\n", bot.conf.MaxContentSize)
+	response += fmt.Sprintf("*LLM*: `%v`\n", bot.conf.OllamaModel)
+	response += fmt.Sprintf("*Отправлять в Google таблицу?*: `%v`\n", bot.conf.PushToGoogleSheet)
+	response += fmt.Sprintf("*ID Google таблицы*: `%v`\n", bot.conf.SheetConfig.SpreadsheetID)
+	response += fmt.Sprintf("*Наименование листа таблицы*: `%v`\n", bot.conf.SheetConfig.SheetName)
+	response += fmt.Sprintf("*Общедоступный?*: `%v`\n", bot.conf.Public)
+	response += fmt.Sprintf("*Разрешенные пользователи*: `%+v`\n", bot.conf.AllowedUserIDs)
 
 	msg := tgbotapi.NewMessage(
 		message.Chat.ID,
@@ -393,4 +395,61 @@ func (bot *Bot) PrintConfig(message *tgbotapi.Message) {
 	msg.ParseMode = "Markdown"
 	msg.ReplyToMessageID = message.MessageID
 	bot.api.Send(msg)
+}
+
+func (bot *Bot) ChangeSpreadhseetID(message *tgbotapi.Message) {
+	parts := strings.Split(message.Text, " ")
+	if len(parts) < 2 {
+		msg := tgbotapi.NewMessage(
+			message.Chat.ID,
+			"Не указано новое значение.",
+		)
+		msg.ReplyToMessageID = message.MessageID
+		bot.api.Send(msg)
+		return
+	}
+
+	bot.conf.SheetConfig.SpreadsheetID = parts[1]
+	if bot.sheet != nil {
+		bot.sheet.SpreadsheetID = bot.conf.SheetConfig.SpreadsheetID
+	}
+
+	msg := tgbotapi.NewMessage(
+		message.Chat.ID,
+		"Значение успешно изменено.",
+	)
+	msg.ReplyToMessageID = message.MessageID
+	bot.api.Send(msg)
+
+	// Обновляем конфигурационный файл
+	bot.conf.Update()
+}
+
+func (bot *Bot) ChangeSheetName(message *tgbotapi.Message) {
+	parts := strings.Split(message.Text, " ")
+	if len(parts) < 2 {
+		msg := tgbotapi.NewMessage(
+			message.Chat.ID,
+			"Не указано новое имя.",
+		)
+		msg.ReplyToMessageID = message.MessageID
+		bot.api.Send(msg)
+		return
+	}
+
+	newName, _ := strings.CutPrefix(message.Text, parts[0])
+	bot.conf.SheetConfig.SheetName = newName
+	if bot.sheet != nil {
+		bot.sheet.SheetName = newName
+	}
+
+	msg := tgbotapi.NewMessage(
+		message.Chat.ID,
+		"Имя успешно изменено.",
+	)
+	msg.ReplyToMessageID = message.MessageID
+	bot.api.Send(msg)
+
+	// Обновляем конфигурационный файл
+	bot.conf.Update()
 }
