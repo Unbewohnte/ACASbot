@@ -243,6 +243,18 @@ func (bot *Bot) AddUser(message *tgbotapi.Message) error {
 		return nil
 	}
 
+	for _, allowedID := range bot.conf.AllowedUserIDs {
+		if id == allowedID {
+			msg := tgbotapi.NewMessage(
+				message.Chat.ID,
+				"Этот пользователь уже есть в списке разрешенных.",
+			)
+			msg.ReplyToMessageID = message.MessageID
+			bot.api.Send(msg)
+			return nil
+		}
+	}
+
 	bot.conf.AllowedUserIDs = append(bot.conf.AllowedUserIDs, id)
 
 	// Сохраним в файл
@@ -372,6 +384,29 @@ func (bot *Bot) ChangeMaxContentSize(message *tgbotapi.Message) error {
 
 	// Обновляем конфигурационный файл
 	bot.conf.Update()
+
+	return nil
+}
+
+func (bot *Bot) PrintConfig(message *tgbotapi.Message) error {
+	var response string = ""
+
+	response += "*Нынешняя конфигурация*: \n"
+	response += fmt.Sprintf("*Наименование организации*: %v\n", bot.conf.OrganizationName)
+	response += fmt.Sprintf("*Полный анализ?*: %v\n", bot.conf.FullAnalysis)
+	response += fmt.Sprintf("*Лимит символов для анализа*: %v\n", bot.conf.MaxContentSize)
+	response += fmt.Sprintf("*LLM*: %v\n", bot.conf.OllamaModel)
+	response += fmt.Sprintf("*Отправлять в Google таблицу?*: %v\n", bot.conf.PushToGoogleSheet)
+	response += fmt.Sprintf("*Общедоступный?*: %v\n", bot.conf.Public)
+	response += fmt.Sprintf("*Разрешенные пользователи*: %+v\n", bot.conf.AllowedUserIDs)
+
+	msg := tgbotapi.NewMessage(
+		message.Chat.ID,
+		response,
+	)
+	msg.ParseMode = "Markdown"
+	msg.ReplyToMessageID = message.MessageID
+	bot.api.Send(msg)
 
 	return nil
 }

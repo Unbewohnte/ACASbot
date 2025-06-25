@@ -97,6 +97,12 @@ func (bot *Bot) Init() {
 		Call:        bot.ChangeMaxContentSize,
 	})
 
+	bot.NewCommand(Command{
+		Name:        "conf",
+		Description: "Написать текущую конфигурацию",
+		Call:        bot.PrintConfig,
+	})
+
 	if bot.conf.PushToGoogleSheet {
 		sheetsClient, err := spreadsheet.NewGoogleSheetsClient(
 			context.Background(),
