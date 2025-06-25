@@ -438,9 +438,9 @@ func (bot *Bot) ChangeSheetName(message *tgbotapi.Message) {
 	}
 
 	newName, _ := strings.CutPrefix(message.Text, parts[0])
-	bot.conf.SheetConfig.SheetName = newName
+	bot.conf.SheetConfig.SheetName = strings.TrimSpace(newName)
 	if bot.sheet != nil {
-		bot.sheet.SheetName = newName
+		bot.sheet.SheetName = bot.conf.SheetConfig.SheetName
 	}
 
 	msg := tgbotapi.NewMessage(
