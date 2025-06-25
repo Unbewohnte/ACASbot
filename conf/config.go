@@ -61,7 +61,7 @@ func Default() *Config {
 }
 
 func (conf *Config) Save(filepath string) error {
-	file, err := os.OpenFile(filepath, os.O_CREATE|os.O_WRONLY, os.ModePerm)
+	file, err := os.OpenFile(filepath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, os.ModePerm)
 	if err != nil {
 		return err
 	}

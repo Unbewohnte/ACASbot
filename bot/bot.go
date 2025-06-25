@@ -90,6 +90,13 @@ func (bot *Bot) Init() {
 		Call:        bot.RemoveUser,
 	})
 
+	bot.NewCommand(Command{
+		Name:        "setmaxcontent",
+		Description: "Установить новый лимит символов, извлекаемых из текста статьи",
+		Example:     "setmaxcontent 340",
+		Call:        bot.ChangeMaxContentSize,
+	})
+
 	if bot.conf.PushToGoogleSheet {
 		sheetsClient, err := spreadsheet.NewGoogleSheetsClient(
 			context.Background(),

@@ -201,10 +201,6 @@ func (bot *Bot) extractFallbackContent(doc *goquery.Document) (string, error) {
 		return "", fmt.Errorf("недостаточно текста")
 	}
 
-	if uint(len(mainContent)) > bot.conf.MaxContentSize {
-		mainContent = mainContent[:bot.conf.MaxContentSize]
-	}
-
 	return mainContent, nil
 }
 
@@ -222,31 +218,40 @@ func (bot *Bot) analyzeArticle(url string) (*ArticleAnalysis, error) {
 
 	if bot.conf.Debug {
 		status := "структурированный"
-		if !articleContent.Success {
+		if !result.Content.Success {
 			status = "фолбэк"
 		}
 		log.Printf("Использован %s метод. Заголовок: %s. Содержание: %s",
-			status, articleContent.Title, articleContent.Content)
+			status, result.Content.Title, result.Content.Content)
+	}
+
+	// Лимит на кол-во символов
+	if uint(len(result.Content.Content)) > bot.conf.MaxContentSize {
+		result.Content.Content = result.Content.Content[:bot.conf.MaxContentSize]
+
+		if bot.conf.Debug {
+			log.Printf("Урезано до : %s\n", result.Content.Content)
+		}
 	}
 
 	var wg sync.WaitGroup
 	results := make(chan string, 3)
 	errors := make(chan error, 3)
 
-	needTitle := !articleContent.Success || articleContent.Title == ""
+	needTitle := !result.Content.Success || result.Content.Title == ""
 	if needTitle {
 		wg.Add(1)
-		go bot.queryTitle(articleContent.Content, &wg, results, errors)
+		go bot.queryTitle(result.Content.Content, &wg, results, errors)
 	}
 
 	switch bot.conf.FullAnalysis {
 	case true:
 		wg.Add(2)
-		go bot.queryTheme(articleContent.Content, &wg, results, errors)
-		go bot.querySentiment(articleContent.Content, false, &wg, results, errors)
+		go bot.queryTheme(result.Content.Content, &wg, results, errors)
+		go bot.querySentiment(result.Content.Content, false, &wg, results, errors)
 	case false:
 		wg.Add(1)
-		go bot.querySentiment(articleContent.Content, true, &wg, results, errors)
+		go bot.querySentiment(result.Content.Content, true, &wg, results, errors)
 	}
 
 	// Обработка результатов

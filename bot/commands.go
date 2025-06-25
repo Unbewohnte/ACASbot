@@ -324,3 +324,54 @@ func (bot *Bot) RemoveUser(message *tgbotapi.Message) error {
 
 	return err
 }
+
+func (bot *Bot) ChangeMaxContentSize(message *tgbotapi.Message) error {
+	parts := strings.Split(message.Text, " ")
+	if len(parts) < 2 {
+		msg := tgbotapi.NewMessage(
+			message.Chat.ID,
+			"Не указано новое значение.",
+		)
+		msg.ReplyToMessageID = message.MessageID
+		bot.api.Send(msg)
+
+		return nil
+	}
+
+	newMaxContentSize, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		msg := tgbotapi.NewMessage(
+			message.Chat.ID,
+			"Указано некорректное значение.",
+		)
+		msg.ReplyToMessageID = message.MessageID
+		bot.api.Send(msg)
+
+		return nil
+	}
+
+	if newMaxContentSize <= 0 {
+		msg := tgbotapi.NewMessage(
+			message.Chat.ID,
+			"Указано некорректное значение. Необходимо указать значение > 0",
+		)
+		msg.ReplyToMessageID = message.MessageID
+		bot.api.Send(msg)
+
+		return nil
+	}
+
+	bot.conf.MaxContentSize = uint(newMaxContentSize)
+
+	msg := tgbotapi.NewMessage(
+		message.Chat.ID,
+		"Значение успешно изменено.",
+	)
+	msg.ReplyToMessageID = message.MessageID
+	bot.api.Send(msg)
+
+	// Обновляем конфигурационный файл
+	bot.conf.Update()
+
+	return nil
+}
