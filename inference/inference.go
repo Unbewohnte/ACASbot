@@ -23,18 +23,21 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	ollama "github.com/ollama/ollama/api"
 )
 
 type Inference struct {
-	ModelName string
-	Client    *ollama.Client
+	ModelName      string
+	Client         *ollama.Client
+	TimeoutSeconds uint
 }
 
-func NewInference(ollamaModel string) (*Inference, error) {
+func NewInference(ollamaModel string, timeoutSeconds uint) (*Inference, error) {
 	inference := &Inference{
-		ModelName: ollamaModel,
+		ModelName:      ollamaModel,
+		TimeoutSeconds: timeoutSeconds,
 	}
 
 	client, err := ollama.ClientFromEnvironment()
@@ -51,11 +54,13 @@ func NewInference(ollamaModel string) (*Inference, error) {
 }
 
 func (i *Inference) CheckModel() error {
-	// ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	// defer cancel()
+	ctx, cancel := context.WithTimeout(
+		context.Background(),
+		time.Duration(i.TimeoutSeconds)*time.Second,
+	)
+	defer cancel()
 
-	// modelsResp, err := i.Client.List(ctx)
-	modelsResp, err := i.Client.List(context.Background())
+	modelsResp, err := i.Client.List(ctx)
 	if err != nil {
 		return fmt.Errorf("ошибка при запросе списка моделей: %w", err)
 	}
@@ -72,13 +77,14 @@ func (i *Inference) CheckModel() error {
 		return fmt.Errorf("модель '%s' не найдена в Ollama", i.ModelName)
 	}
 
-	// testCtx, testCancel := context.WithTimeout(context.Background(), 15*time.Second)
-	// defer testCancel()
+	testCtx, testCancel := context.WithTimeout(
+		context.Background(), time.Duration(i.TimeoutSeconds)*time.Second,
+	)
+	defer testCancel()
 
 	testPrompt := "Ответь одним словом: работаешь?"
 	var response strings.Builder
-	err = i.Client.Generate(context.Background(), &ollama.GenerateRequest{
-		// err = i.Client.Generate(testCtx, &ollama.GenerateRequest{
+	err = i.Client.Generate(testCtx, &ollama.GenerateRequest{
 		Model:  i.ModelName,
 		Prompt: testPrompt,
 	}, func(res ollama.GenerateResponse) error {
@@ -95,11 +101,14 @@ func (i *Inference) CheckModel() error {
 }
 
 func (i *Inference) Query(prompt string) (string, error) {
-	// ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
-	// defer cancel()
+	ctx, cancel := context.WithTimeout(
+		context.Background(),
+		time.Duration(i.TimeoutSeconds)*time.Second,
+	)
+	defer cancel()
 
 	var response strings.Builder
-	err := i.Client.Generate(context.Background(), &ollama.GenerateRequest{
+	err := i.Client.Generate(ctx, &ollama.GenerateRequest{
 		Model:  i.ModelName,
 		Prompt: prompt,
 		Options: map[string]interface{}{

@@ -453,3 +453,40 @@ func (bot *Bot) ChangeSheetName(message *tgbotapi.Message) {
 	// Обновляем конфигурационный файл
 	bot.conf.Update()
 }
+
+func (bot *Bot) ChangeQueryTimeout(message *tgbotapi.Message) {
+	parts := strings.Split(message.Text, " ")
+	if len(parts) < 2 {
+		msg := tgbotapi.NewMessage(
+			message.Chat.ID,
+			"Не указано количество секунд.",
+		)
+		msg.ReplyToMessageID = message.MessageID
+		bot.api.Send(msg)
+		return
+	}
+
+	timeoutSeconds, err := strconv.ParseUint(parts[1], 10, 64)
+	if err != nil {
+		msg := tgbotapi.NewMessage(
+			message.Chat.ID,
+			"Неверное значение количества секунд.",
+		)
+		msg.ReplyToMessageID = message.MessageID
+		bot.api.Send(msg)
+		return
+	}
+
+	bot.conf.OllamaQueryTimeoutSeconds = uint(timeoutSeconds)
+	bot.model.TimeoutSeconds = bot.conf.OllamaQueryTimeoutSeconds
+
+	msg := tgbotapi.NewMessage(
+		message.Chat.ID,
+		"Время таймаута запросов к LLM успешно изменено.",
+	)
+	msg.ReplyToMessageID = message.MessageID
+	bot.api.Send(msg)
+
+	// Обновляем конфигурационный файл
+	bot.conf.Update()
+}

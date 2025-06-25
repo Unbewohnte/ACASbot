@@ -54,7 +54,7 @@ type ArticleAnalysis struct {
 
 func (bot *Bot) ExtractWebContent(articleURL string) (ArticleContent, error) {
 	client := &http.Client{
-		Timeout: 30 * time.Second,
+		Timeout: 15 * time.Second,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			req.Header = via[0].Header.Clone()
 			return nil

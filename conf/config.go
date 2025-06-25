@@ -29,17 +29,18 @@ import (
 var CONFIG_PATH string = ""
 
 type Config struct {
-	ApiToken          string             `json:"api_token"`
-	OrganizationName  string             `json:"organization_name"`
-	OllamaModel       string             `json:"ollama_model"`
-	MaxContentSize    uint               `json:"max_content_size"`
-	Debug             bool               `json:"debug"`
-	FullAnalysis      bool               `json:"full_analysis"`
-	PushToGoogleSheet bool               `json:"push_to_google_sheet"`
-	SheetConfig       spreadsheet.Config `json:"sheet_config"`
-	CredentialsFile   string             `json:"credentials_file"`
-	Public            bool               `json:"is_public"`
-	AllowedUserIDs    []int64            `json:"allowed_user_ids"`
+	ApiToken                  string             `json:"api_token"`
+	OrganizationName          string             `json:"organization_name"`
+	OllamaModel               string             `json:"ollama_model"`
+	OllamaQueryTimeoutSeconds uint               `json:"ollama_query_timeout_seconds"`
+	MaxContentSize            uint               `json:"max_content_size"`
+	Debug                     bool               `json:"debug"`
+	FullAnalysis              bool               `json:"full_analysis"`
+	PushToGoogleSheet         bool               `json:"push_to_google_sheet"`
+	SheetConfig               spreadsheet.Config `json:"sheet_config"`
+	CredentialsFile           string             `json:"credentials_file"`
+	Public                    bool               `json:"is_public"`
+	AllowedUserIDs            []int64            `json:"allowed_user_ids"`
 }
 
 func Default() *Config {
@@ -54,9 +55,10 @@ func Default() *Config {
 		SheetConfig: spreadsheet.NewConfig(
 			nil, "spreadsheet_id", "Sheet 1",
 		),
-		CredentialsFile: "secret.json",
-		Public:          true,
-		AllowedUserIDs:  []int64{},
+		CredentialsFile:           "secret.json",
+		Public:                    true,
+		AllowedUserIDs:            []int64{},
+		OllamaQueryTimeoutSeconds: 300,
 	}
 }
 

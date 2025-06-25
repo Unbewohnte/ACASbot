@@ -20,7 +20,10 @@ type Bot struct {
 }
 
 func NewBot(config *conf.Config) (*Bot, error) {
-	model, err := inference.NewInference(config.OllamaModel)
+	model, err := inference.NewInference(
+		config.OllamaModel,
+		config.OllamaQueryTimeoutSeconds,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -104,17 +107,24 @@ func (bot *Bot) Init() {
 	})
 
 	bot.NewCommand(Command{
-		Name:        "changesheetname",
+		Name:        "setsheetname",
 		Description: "Изменить наименование листа таблицы",
-		Example:     "changesheetname Sheet 2",
+		Example:     "setsheetname Sheet 2",
 		Call:        bot.ChangeSheetName,
 	})
 
 	bot.NewCommand(Command{
-		Name:        "changesheetid",
+		Name:        "setsheetid",
 		Description: "Изменить идентификатор таблицы",
-		Example:     "changesheetid s0m3_1d_l1k3_k4DGHJd1",
+		Example:     "setsheetid s0m3_1d_l1k3_k4DGHJd1",
 		Call:        bot.ChangeSpreadhseetID,
+	})
+
+	bot.NewCommand(Command{
+		Name:        "setquerytimeout",
+		Description: "Изменить допустимое время запросов к LLM в секундах. Если запрос будет обрабатываться дольше допустимого, - запрос окончится досрочно.",
+		Example:     "setquerytimeout 120",
+		Call:        bot.ChangeQueryTimeout,
 	})
 
 	if bot.conf.PushToGoogleSheet {
