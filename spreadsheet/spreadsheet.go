@@ -83,11 +83,15 @@ type SheetEntry struct {
 	SentimentType   string
 }
 
+func formatDate(date time.Time) string {
+	return fmt.Sprintf("%d/%d/%d", date.Day(), date.Month(), date.Year())
+}
+
 // AddAnalysisResult добавляет результат анализа в таблицу
 func (gsc *GoogleSheetsClient) AddAnalysisResult(entry *SheetEntry) error {
 	// Формируем строку для добавления
 	values := []interface{}{
-		entry.PublicationDate.Format("2006-01-02"),
+		formatDate(entry.PublicationDate),
 		entry.Source,
 		entry.Summary,
 		entry.URL,
