@@ -166,6 +166,16 @@ func (bot *Bot) Start() error {
 				break // Дальше не продолжаем
 			}
 		}
+
+		// Проверим, URL ли это
+		if strings.HasPrefix(update.Message.Text, "http") {
+			// Отправляем команде do
+			do := bot.CommandByName("do")
+			if do != nil {
+				update.Message.Text = "do " + update.Message.Text
+				do.Call(update.Message)
+			}
+		}
 	}
 
 	return nil

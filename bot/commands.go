@@ -16,14 +16,24 @@ type Command struct {
 	Name        string
 	Description string
 	Example     string
-	Call        func(*tgbotapi.Message) error
+	Call        func(*tgbotapi.Message)
 }
 
 func (bot *Bot) NewCommand(cmd Command) {
 	bot.commands = append(bot.commands, cmd)
 }
 
-func (bot *Bot) Help(message *tgbotapi.Message) error {
+func (bot *Bot) CommandByName(name string) *Command {
+	for _, command := range bot.commands {
+		if command.Name == name {
+			return &command
+		}
+	}
+
+	return nil
+}
+
+func (bot *Bot) Help(message *tgbotapi.Message) {
 	var helpMessage string
 
 	for _, command := range bot.commands {
@@ -38,12 +48,10 @@ func (bot *Bot) Help(message *tgbotapi.Message) error {
 		helpMessage,
 	)
 	msg.ParseMode = "Markdown"
-	_, err := bot.api.Send(msg)
-
-	return err
+	bot.api.Send(msg)
 }
 
-func (bot *Bot) ChangeOrg(message *tgbotapi.Message) error {
+func (bot *Bot) ChangeOrg(message *tgbotapi.Message) {
 	parts := strings.Split(strings.TrimSpace(message.Text), " ")
 	if len(parts) < 2 {
 		msg := tgbotapi.NewMessage(
@@ -52,7 +60,7 @@ func (bot *Bot) ChangeOrg(message *tgbotapi.Message) error {
 		)
 		msg.ReplyToMessageID = message.MessageID
 		bot.api.Send(msg)
-		return nil
+		return
 	}
 
 	bot.conf.OrganizationName = strings.Join(parts[1:], " ")
@@ -62,12 +70,10 @@ func (bot *Bot) ChangeOrg(message *tgbotapi.Message) error {
 	)
 
 	msg.ReplyToMessageID = message.MessageID
-	_, err := bot.api.Send(msg)
+	bot.api.Send(msg)
 
 	// Обновляем конфигурационный файл
 	bot.conf.Update()
-
-	return err
 }
 
 func (bot *Bot) formatAnalysisResult(result *ArticleAnalysis) string {
@@ -109,21 +115,21 @@ func (bot *Bot) formatAnalysisResult(result *ArticleAnalysis) string {
 	return response.String()
 }
 
-func (bot *Bot) Do(message *tgbotapi.Message) error {
+func (bot *Bot) Do(message *tgbotapi.Message) {
 	parts := strings.Split(message.Text, " ")
 	if len(parts) < 2 {
 		msg := tgbotapi.NewMessage(message.Chat.ID, "Вы не указали URL")
 		msg.ReplyToMessageID = message.MessageID
-		_, err := bot.api.Send(msg)
-		return err
+		bot.api.Send(msg)
+		return
 	}
 
 	url := parts[1]
 	if !strings.HasPrefix(url, "http") {
 		msg := tgbotapi.NewMessage(message.Chat.ID, "Пожалуйста, отправьте действительный URL, начинающийся с http/https")
 		msg.ReplyToMessageID = message.MessageID
-		_, err := bot.api.Send(msg)
-		return err
+		bot.api.Send(msg)
+		return
 	}
 
 	// Анализируем статью
@@ -132,7 +138,7 @@ func (bot *Bot) Do(message *tgbotapi.Message) error {
 		errorMsg := tgbotapi.NewMessage(message.Chat.ID, "❌ Ошибка обработки страницы: "+err.Error())
 		errorMsg.ReplyToMessageID = message.MessageID
 		bot.api.Send(errorMsg)
-		return err
+		return
 	}
 
 	// Форматируем ответ
@@ -177,8 +183,6 @@ func (bot *Bot) Do(message *tgbotapi.Message) error {
 			bot.api.Send(msg)
 		}
 	}
-
-	return nil
 }
 
 func extractDomain(urlStr string) string {
@@ -189,24 +193,20 @@ func extractDomain(urlStr string) string {
 	return u.Host
 }
 
-func (bot *Bot) ToggleAnalysis(message *tgbotapi.Message) error {
-	var err error = nil
-
+func (bot *Bot) ToggleAnalysis(message *tgbotapi.Message) {
 	if bot.conf.FullAnalysis {
 		bot.conf.FullAnalysis = false
-		_, err = bot.api.Send(tgbotapi.NewMessage(message.Chat.ID, "Полный анализ выключен"))
+		bot.api.Send(tgbotapi.NewMessage(message.Chat.ID, "Полный анализ выключен"))
 	} else {
 		bot.conf.FullAnalysis = true
-		_, err = bot.api.Send(tgbotapi.NewMessage(message.Chat.ID, "Полный анализ включен"))
+		bot.api.Send(tgbotapi.NewMessage(message.Chat.ID, "Полный анализ включен"))
 	}
 
 	// Обновляем конфигурационный файл
 	bot.conf.Update()
-
-	return err
 }
 
-func (bot *Bot) About(message *tgbotapi.Message) error {
+func (bot *Bot) About(message *tgbotapi.Message) {
 	msg := tgbotapi.NewMessage(
 		message.Chat.ID,
 		`ACAS bot (Article Context And Sentiment bot).
@@ -216,11 +216,10 @@ func (bot *Bot) About(message *tgbotapi.Message) error {
 `,
 	)
 
-	_, err := bot.api.Send(msg)
-	return err
+	bot.api.Send(msg)
 }
 
-func (bot *Bot) AddUser(message *tgbotapi.Message) error {
+func (bot *Bot) AddUser(message *tgbotapi.Message) {
 	parts := strings.Split(strings.TrimSpace(message.Text), " ")
 	if len(parts) < 2 {
 		msg := tgbotapi.NewMessage(
@@ -229,7 +228,7 @@ func (bot *Bot) AddUser(message *tgbotapi.Message) error {
 		)
 		msg.ReplyToMessageID = message.MessageID
 		bot.api.Send(msg)
-		return nil
+		return
 	}
 
 	id, err := strconv.ParseInt(parts[1], 10, 64)
@@ -240,7 +239,7 @@ func (bot *Bot) AddUser(message *tgbotapi.Message) error {
 		)
 		msg.ReplyToMessageID = message.MessageID
 		bot.api.Send(msg)
-		return nil
+		return
 	}
 
 	for _, allowedID := range bot.conf.AllowedUserIDs {
@@ -251,7 +250,7 @@ func (bot *Bot) AddUser(message *tgbotapi.Message) error {
 			)
 			msg.ReplyToMessageID = message.MessageID
 			bot.api.Send(msg)
-			return nil
+			return
 		}
 	}
 
@@ -265,33 +264,27 @@ func (bot *Bot) AddUser(message *tgbotapi.Message) error {
 		"Пользователь успешно добавлен!",
 	)
 	msg.ReplyToMessageID = message.MessageID
-	_, err = bot.api.Send(msg)
-
-	return err
+	bot.api.Send(msg)
 }
 
-func (bot *Bot) TogglePublicity(message *tgbotapi.Message) error {
-	var err error = nil
-
+func (bot *Bot) TogglePublicity(message *tgbotapi.Message) {
 	if bot.conf.Public {
 		bot.conf.Public = false
-		_, err = bot.api.Send(
+		bot.api.Send(
 			tgbotapi.NewMessage(message.Chat.ID, "Доступ к боту теперь только у избранных."),
 		)
 	} else {
 		bot.conf.Public = true
-		_, err = bot.api.Send(
+		bot.api.Send(
 			tgbotapi.NewMessage(message.Chat.ID, "Доступ к боту теперь у всех."),
 		)
 	}
 
 	// Обновляем конфигурационный файл
 	bot.conf.Update()
-
-	return err
 }
 
-func (bot *Bot) RemoveUser(message *tgbotapi.Message) error {
+func (bot *Bot) RemoveUser(message *tgbotapi.Message) {
 	parts := strings.Split(strings.TrimSpace(message.Text), " ")
 	if len(parts) < 2 {
 		msg := tgbotapi.NewMessage(
@@ -300,7 +293,7 @@ func (bot *Bot) RemoveUser(message *tgbotapi.Message) error {
 		)
 		msg.ReplyToMessageID = message.MessageID
 		bot.api.Send(msg)
-		return nil
+		return
 	}
 
 	id, err := strconv.ParseInt(parts[1], 10, 64)
@@ -311,7 +304,7 @@ func (bot *Bot) RemoveUser(message *tgbotapi.Message) error {
 		)
 		msg.ReplyToMessageID = message.MessageID
 		bot.api.Send(msg)
-		return nil
+		return
 	}
 
 	tmp := bot.conf.AllowedUserIDs
@@ -333,11 +326,9 @@ func (bot *Bot) RemoveUser(message *tgbotapi.Message) error {
 	)
 	msg.ReplyToMessageID = message.MessageID
 	_, err = bot.api.Send(msg)
-
-	return err
 }
 
-func (bot *Bot) ChangeMaxContentSize(message *tgbotapi.Message) error {
+func (bot *Bot) ChangeMaxContentSize(message *tgbotapi.Message) {
 	parts := strings.Split(message.Text, " ")
 	if len(parts) < 2 {
 		msg := tgbotapi.NewMessage(
@@ -346,8 +337,7 @@ func (bot *Bot) ChangeMaxContentSize(message *tgbotapi.Message) error {
 		)
 		msg.ReplyToMessageID = message.MessageID
 		bot.api.Send(msg)
-
-		return nil
+		return
 	}
 
 	newMaxContentSize, err := strconv.ParseInt(parts[1], 10, 64)
@@ -358,8 +348,7 @@ func (bot *Bot) ChangeMaxContentSize(message *tgbotapi.Message) error {
 		)
 		msg.ReplyToMessageID = message.MessageID
 		bot.api.Send(msg)
-
-		return nil
+		return
 	}
 
 	if newMaxContentSize <= 0 {
@@ -369,8 +358,7 @@ func (bot *Bot) ChangeMaxContentSize(message *tgbotapi.Message) error {
 		)
 		msg.ReplyToMessageID = message.MessageID
 		bot.api.Send(msg)
-
-		return nil
+		return
 	}
 
 	bot.conf.MaxContentSize = uint(newMaxContentSize)
@@ -384,11 +372,9 @@ func (bot *Bot) ChangeMaxContentSize(message *tgbotapi.Message) error {
 
 	// Обновляем конфигурационный файл
 	bot.conf.Update()
-
-	return nil
 }
 
-func (bot *Bot) PrintConfig(message *tgbotapi.Message) error {
+func (bot *Bot) PrintConfig(message *tgbotapi.Message) {
 	var response string = ""
 
 	response += "*Нынешняя конфигурация*: \n"
@@ -407,6 +393,4 @@ func (bot *Bot) PrintConfig(message *tgbotapi.Message) error {
 	msg.ParseMode = "Markdown"
 	msg.ReplyToMessageID = message.MessageID
 	bot.api.Send(msg)
-
-	return nil
 }
