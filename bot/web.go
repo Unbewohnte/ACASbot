@@ -20,19 +20,22 @@ package bot
 
 import (
 	"bytes"
+	"compress/flate"
+	"compress/gzip"
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/go-shiori/go-readability"
-	"golang.org/x/text/encoding/charmap"
-	"golang.org/x/text/transform"
 )
 
 type ArticleContent struct {
@@ -53,8 +56,14 @@ type ArticleAnalysis struct {
 }
 
 func (bot *Bot) ExtractWebContent(articleURL string) (ArticleContent, error) {
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		return ArticleContent{}, fmt.Errorf("ошибка создания cookie jar: %w", err)
+	}
+
 	client := &http.Client{
 		Timeout: 15 * time.Second,
+		Jar:     jar,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			req.Header = via[0].Header.Clone()
 			return nil
@@ -66,12 +75,7 @@ func (bot *Bot) ExtractWebContent(articleURL string) (ArticleContent, error) {
 		return ArticleContent{}, fmt.Errorf("ошибка создания запроса: %w", err)
 	}
 
-	req.Header = http.Header{
-		"User-Agent":      {"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"},
-		"Accept":          {"text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"},
-		"Accept-Language": {"ru-RU,ru;q=0.8,en-US;q=0.5,en;q=0.3"},
-		"Connection":      {"keep-alive"},
-	}
+	bot.setAdvancedHeaders(req)
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -79,9 +83,41 @@ func (bot *Bot) ExtractWebContent(articleURL string) (ArticleContent, error) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return ArticleContent{}, fmt.Errorf("HTTP статус %d: %s", resp.StatusCode, string(bodyBytes))
+	var reader io.Reader
+
+	// Проверяем Content-Encoding и распаковываем при необходимости
+	switch resp.Header.Get("Content-Encoding") {
+	case "gzip":
+		reader, err = gzip.NewReader(resp.Body)
+		if err != nil {
+			return ArticleContent{}, fmt.Errorf("ошибка создания gzip reader: %w", err)
+		}
+		defer reader.(*gzip.Reader).Close()
+	case "deflate":
+		reader = flate.NewReader(resp.Body)
+		defer reader.(io.ReadCloser).Close()
+	default:
+		reader = resp.Body
+	}
+
+	// Читаем тело ответа
+	bodyBytes, err := io.ReadAll(reader)
+	if err != nil {
+		return ArticleContent{}, fmt.Errorf("ошибка чтения тела ответа: %w", err)
+	}
+
+	// Проверяем, что это текст
+	contentType := resp.Header.Get("Content-Type")
+	if !strings.Contains(contentType, "text/html") && !strings.Contains(contentType, "text/plain") {
+		// Попробуем определить кодировку по содержимому
+		if !utf8.Valid(bodyBytes) {
+			return ArticleContent{}, fmt.Errorf("получены бинарные данные, не похожие на текст")
+		}
+	}
+
+	// Проверка защиты
+	if bot.isProtectedPage(bodyBytes) {
+		return ArticleContent{}, fmt.Errorf("страница защищена (CloudFlare или аналоги)")
 	}
 
 	parsedURL, err := url.Parse(articleURL)
@@ -89,8 +125,7 @@ func (bot *Bot) ExtractWebContent(articleURL string) (ArticleContent, error) {
 		return ArticleContent{}, fmt.Errorf("ошибка парсинга URL: %w", err)
 	}
 
-	// Пробуем go-readability в первую очередь
-	article, err := readability.FromReader(resp.Body, parsedURL)
+	article, err := readability.FromReader(bytes.NewReader(bodyBytes), parsedURL)
 	if err == nil && len(article.TextContent) > 100 {
 		pubTime := article.PublishedTime
 		if pubTime == nil {
@@ -105,32 +140,53 @@ func (bot *Bot) ExtractWebContent(articleURL string) (ArticleContent, error) {
 		}, nil
 	}
 
-	// Кодировка
-	var reader io.Reader = resp.Body
-	contentType := resp.Header.Get("Content-Type")
-	if strings.Contains(contentType, "charset=windows-1251") {
-		reader = transform.NewReader(resp.Body, charmap.Windows1251.NewDecoder())
-	} else if strings.Contains(contentType, "charset=ISO-8859-5") {
-		reader = transform.NewReader(resp.Body, charmap.ISO8859_5.NewDecoder())
-	}
-
-	bodyBytes, err := io.ReadAll(io.LimitReader(reader, 2*1024*1024))
-	if err != nil {
-		return ArticleContent{}, fmt.Errorf("ошибка чтения тела: %w", err)
-	}
-
-	// Проверяем CloudFlare
-	if strings.Contains(string(bodyBytes), "Cloudflare") {
-		return ArticleContent{}, fmt.Errorf("страница защищена CloudFlare")
-	}
-
-	// Пробуем кастомный парсинг
+	// Кастомный парсинг
 	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(bodyBytes))
 	if err != nil {
 		return ArticleContent{}, fmt.Errorf("ошибка парсинга HTML: %w", err)
 	}
 
 	return bot.extractCustomContent(doc)
+}
+
+func (bot *Bot) setAdvancedHeaders(req *http.Request) {
+	headers := map[string]string{
+		"User-Agent":                bot.getRandomUserAgent(),
+		"Accept":                    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+		"Accept-Language":           "ru-RU,ru;q=0.8,en-US;q=0.5,en;q=0.3",
+		"Accept-Encoding":           "gzip, deflate",
+		"Connection":                "keep-alive",
+		"Referer":                   "https://www.google.com/",
+		"DNT":                       "1",
+		"Upgrade-Insecure-Requests": "1",
+		"Sec-Fetch-Dest":            "document",
+		"Sec-Fetch-Mode":            "navigate",
+		"Sec-Fetch-Site":            "none",
+		"Sec-Fetch-User":            "?1",
+	}
+
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+}
+
+func (bot *Bot) isProtectedPage(body []byte) bool {
+	bodyStr := string(body)
+	return strings.Contains(bodyStr, "Cloudflare") ||
+		strings.Contains(bodyStr, "DDoS protection") ||
+		strings.Contains(bodyStr, "Checking your browser") ||
+		len(bodyStr) < 100 && strings.Contains(bodyStr, "<html")
+}
+
+var userAgents = []string{
+	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Safari/605.1.15",
+	"Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Mobile/15E148 Safari/604.1",
+	"Mozilla/5.0 (Linux; Android 13; SM-S901B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Mobile Safari/537.36",
+}
+
+func (bot *Bot) getRandomUserAgent() string {
+	return userAgents[rand.Intn(len(userAgents))]
 }
 
 func (bot *Bot) extractCustomContent(doc *goquery.Document) (ArticleContent, error) {
