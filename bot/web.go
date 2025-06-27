@@ -29,9 +29,11 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/PuerkitoBio/goquery"
@@ -260,6 +262,53 @@ func (bot *Bot) extractFallbackContent(doc *goquery.Document) (string, error) {
 	return mainContent, nil
 }
 
+func cleanContent(content string) string {
+	// 1. Удаляем все управляющие символы и непечатаемые символы
+	cleaned := strings.Map(func(r rune) rune {
+		if r == '\t' || r == '\n' || r == '\r' {
+			return ' ' // Заменяем на обычный пробел
+		}
+		if unicode.IsControl(r) || unicode.IsMark(r) {
+			return -1 // Удаляем
+		}
+		if r < 32 || r > 126 && r < 160 {
+			return -1 // Удаляем нестандартные символы
+		}
+		return r
+	}, content)
+
+	// 2. Заменяем различные варианты пробелов на обычный пробел
+	cleaned = regexp.MustCompile(`[\s\p{Zs}]+`).ReplaceAllString(cleaned, " ")
+
+	// 3. Удаляем лишние пробелы вокруг пунктуации
+	cleaned = regexp.MustCompile(`\s+([.,!?;:)]+)`).ReplaceAllString(cleaned, "$1")
+	cleaned = regexp.MustCompile(`([([{])\s+`).ReplaceAllString(cleaned, "$1")
+
+	// 4. Удаляем "мусорные" последовательности символов
+	cleaned = regexp.MustCompile(`[=+*_\-~]{3,}`).ReplaceAllString(cleaned, " ")   // Разделители
+	cleaned = regexp.MustCompile(`[\p{So}\p{Sk}]+`).ReplaceAllString(cleaned, " ") // Символы и модификаторы
+
+	// 5. Удаляем одиночные символы кроме букв и цифр
+	cleaned = regexp.MustCompile(`(^|\s)[^а-яА-Яa-zA-Z0-9](\s|$)`).ReplaceAllString(cleaned, " ")
+
+	// 6. Удаляем повторяющиеся пробелы
+	cleaned = regexp.MustCompile(` {2,}`).ReplaceAllString(cleaned, " ")
+
+	// 7. Удаляем пробелы в начале и конце
+	cleaned = strings.TrimSpace(cleaned)
+
+	// 8. Восстанавливаем стандартные кавычки
+	cleaned = strings.ReplaceAll(cleaned, "«", "\"")
+	cleaned = strings.ReplaceAll(cleaned, "»", "\"")
+	cleaned = strings.ReplaceAll(cleaned, "“", "\"")
+	cleaned = strings.ReplaceAll(cleaned, "”", "\"")
+
+	// 9. Удаляем оставшиеся одиночные специальные символы
+	cleaned = regexp.MustCompile(`\s[^а-яА-Яa-zA-Z0-9\s]\s`).ReplaceAllString(cleaned, " ")
+
+	return cleaned
+}
+
 type QueryResult struct {
 	Type    string // "title", "theme", "sentiment"
 	Content string
@@ -270,6 +319,8 @@ func (bot *Bot) analyzeArticle(url string) (*ArticleAnalysis, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	articleContent.Content = cleanContent(articleContent.Content)
 
 	result := &ArticleAnalysis{
 		URL:     url,
@@ -291,6 +342,9 @@ func (bot *Bot) analyzeArticle(url string) (*ArticleAnalysis, error) {
 	// Ограничение размера контента
 	if uint(len(result.Content.Content)) > bot.conf.MaxContentSize {
 		result.Content.Content = result.Content.Content[:bot.conf.MaxContentSize]
+		if bot.conf.Debug {
+			log.Printf("Урезано до: %s\n", result.Content.Content)
+		}
 	}
 
 	var wg sync.WaitGroup

@@ -20,7 +20,6 @@ package bot
 
 import (
 	"fmt"
-	"log"
 	"strings"
 )
 
@@ -64,10 +63,6 @@ func (bot *Bot) querySentiment(
 			bot.conf.OrganizationName,
 			content,
 		)
-	}
-
-	if bot.conf.Debug {
-		log.Printf("Промпт отношения: %s", prompt)
 	}
 
 	return bot.model.Query(prompt)
