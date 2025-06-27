@@ -260,8 +260,12 @@ func (bot *Bot) extractFallbackContent(doc *goquery.Document) (string, error) {
 	return mainContent, nil
 }
 
+type QueryResult struct {
+	Type    string // "title", "theme", "sentiment"
+	Content string
+}
+
 func (bot *Bot) analyzeArticle(url string) (*ArticleAnalysis, error) {
-	// Извлекаем контент
 	articleContent, err := bot.ExtractWebContent(url)
 	if err != nil {
 		return nil, err
@@ -277,37 +281,74 @@ func (bot *Bot) analyzeArticle(url string) (*ArticleAnalysis, error) {
 		if !result.Content.Success {
 			status = "фолбэк"
 		}
-		log.Printf("Использован %s метод. Заголовок: %s. Содержание: %s",
-			status, result.Content.Title, result.Content.Content)
+		log.Printf("Использован %s метод. Заголовок: %s; Содержимое: %s",
+			status,
+			result.Content.Title,
+			result.Content.Content,
+		)
 	}
 
-	// Лимит на кол-во символов
+	// Ограничение размера контента
 	if uint(len(result.Content.Content)) > bot.conf.MaxContentSize {
 		result.Content.Content = result.Content.Content[:bot.conf.MaxContentSize]
-
-		if bot.conf.Debug {
-			log.Printf("Урезано до : %s\n", result.Content.Content)
-		}
 	}
 
 	var wg sync.WaitGroup
-	results := make(chan string, 3)
+	results := make(chan QueryResult, 3) // Используем структурированный канал
 	errors := make(chan error, 3)
+
+	// Типы запросов
+	const (
+		QueryTitle     = "title"
+		QueryTheme     = "theme"
+		QuerySentiment = "sentiment"
+	)
 
 	needTitle := !result.Content.Success || result.Content.Title == ""
 	if needTitle {
 		wg.Add(1)
-		go bot.queryTitle(result.Content.Content, &wg, results, errors)
+		go func() {
+			defer wg.Done()
+			response, err := bot.queryTitle(result.Content.Content)
+			if err != nil {
+				errors <- fmt.Errorf("заголовок: %w", err)
+				return
+			}
+			results <- QueryResult{Type: QueryTitle, Content: response}
+		}()
 	}
 
-	switch bot.conf.FullAnalysis {
-	case true:
+	if bot.conf.FullAnalysis {
 		wg.Add(2)
-		go bot.queryTheme(result.Content.Content, &wg, results, errors)
-		go bot.querySentiment(result.Content.Content, false, &wg, results, errors)
-	case false:
+		go func() {
+			defer wg.Done()
+			response, err := bot.queryTheme(result.Content.Content)
+			if err != nil {
+				errors <- fmt.Errorf("тема: %w", err)
+				return
+			}
+			results <- QueryResult{Type: QueryTheme, Content: cleanTheme(response)}
+		}()
+		go func() {
+			defer wg.Done()
+			response, err := bot.querySentiment(result.Content.Content, false)
+			if err != nil {
+				errors <- fmt.Errorf("отношение: %w", err)
+				return
+			}
+			results <- QueryResult{Type: QuerySentiment, Content: response}
+		}()
+	} else {
 		wg.Add(1)
-		go bot.querySentiment(result.Content.Content, true, &wg, results, errors)
+		go func() {
+			defer wg.Done()
+			response, err := bot.querySentiment(result.Content.Content, true)
+			if err != nil {
+				errors <- fmt.Errorf("отношение: %w", err)
+				return
+			}
+			results <- QueryResult{Type: QuerySentiment, Content: extractSentiment(response)}
+		}()
 	}
 
 	// Обработка результатов
@@ -318,46 +359,27 @@ func (bot *Bot) analyzeArticle(url string) (*ArticleAnalysis, error) {
 	}()
 
 	// Собираем результаты
-	var outputs []string
 	for res := range results {
-		outputs = append(outputs, res)
+		switch res.Type {
+		case QueryTitle:
+			result.TitleFromModel = res.Content
+		case QueryTheme:
+			result.Theme = res.Content
+		case QuerySentiment:
+			// Парсим структурированный ответ
+			parts := strings.SplitN(res.Content, "\n", 2)
+			if len(parts) > 0 {
+				result.Sentiment = extractSentiment(strings.TrimSpace(parts[0]))
+			}
+			if len(parts) > 1 {
+				result.Justification = strings.TrimSpace(parts[1])
+			}
+		}
 	}
 
 	// Собираем ошибки
 	for err := range errors {
 		result.Errors = append(result.Errors, err)
-	}
-
-	// Распределяем результаты по полям
-	resultCounter := 0
-	if needTitle {
-		if len(outputs) > resultCounter {
-			result.TitleFromModel = outputs[resultCounter]
-			resultCounter++
-		}
-	}
-
-	if bot.conf.FullAnalysis {
-		if len(outputs) > resultCounter {
-			result.Theme = outputs[resultCounter]
-			resultCounter++
-		}
-		if len(outputs) > resultCounter {
-			sentimentParts := strings.SplitN(outputs[resultCounter], "\n", 2)
-			if len(sentimentParts) > 0 {
-				result.Sentiment = sentimentParts[0]
-			}
-			if len(sentimentParts) > 1 {
-				result.Justification = sentimentParts[1]
-			}
-		}
-	} else {
-		if len(outputs) > resultCounter {
-			sentimentParts := strings.SplitN(outputs[resultCounter], "\n", 2)
-			if len(sentimentParts) > 0 {
-				result.Sentiment = sentimentParts[0]
-			}
-		}
 	}
 
 	return result, nil

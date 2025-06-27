@@ -66,7 +66,7 @@ func (bot *Bot) ChangeOrg(message *tgbotapi.Message) {
 	bot.conf.OrganizationName = strings.Join(parts[1:], " ")
 	msg := tgbotapi.NewMessage(
 		message.Chat.ID,
-		fmt.Sprintf("Организация сменена на *\"%s\"*", bot.conf.OrganizationName),
+		fmt.Sprintf("Организация сменена на \"%s\"", bot.conf.OrganizationName),
 	)
 
 	msg.ReplyToMessageID = message.MessageID

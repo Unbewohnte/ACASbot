@@ -20,55 +20,36 @@ package bot
 
 import (
 	"fmt"
+	"log"
 	"strings"
-	"sync"
 )
 
 // Запрос для извлечения заголовка
-func (bot *Bot) queryTitle(content string, wg *sync.WaitGroup, results chan<- string, errors chan<- error) {
-	defer wg.Done()
-
+func (bot *Bot) queryTitle(content string) (string, error) {
 	prompt := fmt.Sprintf(
 		"Извлеки основной заголовок статьи из следующего текста. "+
 			"Ответ должен содержать только заголовок без дополнительных комментариев.\n\nТекст:\n%s",
 		content,
 	)
 
-	response, err := bot.model.Query(prompt)
-	if err != nil {
-		errors <- fmt.Errorf("ошибка запроса заголовка: %w", err)
-		return
-	}
-	results <- response
+	return bot.model.Query(prompt)
 }
 
 // Запрос для определения темы
-func (bot *Bot) queryTheme(content string, wg *sync.WaitGroup, results chan<- string, errors chan<- error) {
-	defer wg.Done()
-
+func (bot *Bot) queryTheme(content string) (string, error) {
 	prompt := fmt.Sprintf(
 		"Опиши основную тему следующего текста в 1-2 предложениях. Ответ должен быть кратким и содержательным.\n\nТекст:\n%s",
 		content,
 	)
 
-	response, err := bot.model.Query(prompt)
-	if err != nil {
-		errors <- fmt.Errorf("ошибка запроса темы: %w", err)
-		return
-	}
-	results <- response
+	return bot.model.Query(prompt)
 }
 
 // Запрос для определения отношения к организации
 func (bot *Bot) querySentiment(
 	content string,
 	shortAnswer bool,
-	wg *sync.WaitGroup,
-	results chan<- string,
-	errors chan<- error,
-) {
-	defer wg.Done()
-
+) (string, error) {
 	var prompt string
 	if shortAnswer {
 		prompt = fmt.Sprintf(
@@ -85,23 +66,29 @@ func (bot *Bot) querySentiment(
 		)
 	}
 
-	response, err := bot.model.Query(prompt)
-	if err != nil {
-		errors <- fmt.Errorf("ошибка запроса отношения: %w", err)
-		return
+	if bot.conf.Debug {
+		log.Printf("Промпт отношения: %s", prompt)
 	}
 
-	if shortAnswer {
-		// Гарантируем ответ одним словом
-		rsp := strings.ToLower(response)
-		if strings.Contains(rsp, "положительный") {
-			response = "Положительный"
-		} else if strings.Contains(rsp, "отрицательный") {
-			response = "Отрицательный"
-		} else {
-			response = "Информационный"
-		}
-	}
+	return bot.model.Query(prompt)
+}
 
-	results <- response
+func extractSentiment(response string) string {
+	response = strings.ToLower(response)
+
+	switch {
+	case strings.Contains(response, "позитив"):
+		return "Позитивный"
+	case strings.Contains(response, "негатив") || strings.Contains(response, "отрицат"):
+		return "Отрицательный"
+	default:
+		return "Информационный"
+	}
+}
+
+func cleanTheme(response string) string {
+	if strings.HasPrefix(response, "Тема:") {
+		return strings.TrimSpace(response[5:])
+	}
+	return response
 }
