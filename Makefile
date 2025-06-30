@@ -12,7 +12,7 @@ cross: clean
 	cp COPYING README.md bin/ACASbot_linux_amd64/ 
 
 	mkdir -p bin/ACASbot_windows_amd64 && \
-	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o bin/ACASbot_windows_amd64/ACASbot_windows && \
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o bin/ACASbot_windows_amd64/ACASbot_windows.exe && \
 	cp COPYING README.md bin/ACASbot_windows_amd64/ 
 
 	mkdir -p bin/ACASbot_darwin_amd64 && \
