@@ -141,6 +141,27 @@ func (bot *Bot) Init() {
 		Call:        bot.SetOrganizationData,
 	})
 
+	bot.NewCommand(Command{
+		Name:        "setpromptaf",
+		Description: "Изменить промпт связи",
+		Example:     "setpromptaf При чем здесь {{ORGANIZATION}}? Текст: {{TEXT}}",
+		Call:        bot.SetAffiliationPrompt,
+	})
+
+	bot.NewCommand(Command{
+		Name:        "setpromptti",
+		Description: "Изменить промпт нахождения заголовка",
+		Example:     "setpromptti Найди заголовок текста. Текст: {{TEXT}}",
+		Call:        bot.SettTitlePrompt,
+	})
+
+	bot.NewCommand(Command{
+		Name:        "setpromptse",
+		Description: "Изменить промпт выявления отношения к организации",
+		Example:     "setpromptse Определи отношение к {{ORGANIZATION}} в следующем тексте. Текст: {{TEXT}}",
+		Call:        bot.SetSentimentPrompt,
+	})
+
 	if bot.conf.PushToGoogleSheet {
 		sheetsClient, err := spreadsheet.NewGoogleSheetsClient(
 			context.Background(),

@@ -560,29 +560,58 @@ func (bot *Bot) SetOrganizationData(message *tgbotapi.Message) {
 	bot.conf.Update()
 }
 
-// func (bot *Bot) SetAffiliationPrompt(message *tgbotapi.Message) {
-// 	parts := strings.Split(message.Text, " ")
-// 	if len(parts) < 2 {
-// 		msg := tgbotapi.NewMessage(
-// 			message.Chat.ID,
-// 			"Не указан новый промпт.",
-// 		)
-// 		msg.ReplyToMessageID = message.MessageID
-// 		bot.api.Send(msg)
-// 		return
-// 	}
+type promptType string
 
-// 	prompt, _ := strings.CutPrefix(message.Text, parts[0])
+const (
+	PROMPT_AFFILIATION promptType = "affiliation"
+	PROMPT_TITLE       promptType = "title"
+	PROMPT_SENTIMENT   promptType = "sentiment"
+)
 
-// 	bot.conf.OrganizationMetadata = strings.TrimSpace(orgData)
+func (bot *Bot) setPrompt(message *tgbotapi.Message, promptType promptType) {
+	parts := strings.Split(message.Text, " ")
+	if len(parts) < 2 {
+		msg := tgbotapi.NewMessage(
+			message.Chat.ID,
+			"Не указан новый промпт.",
+		)
+		msg.ReplyToMessageID = message.MessageID
+		bot.api.Send(msg)
+		return
+	}
 
-// 	msg := tgbotapi.NewMessage(
-// 		message.Chat.ID,
-// 		"Информация успешно добавлена.",
-// 	)
-// 	msg.ReplyToMessageID = message.MessageID
-// 	bot.api.Send(msg)
+	prompt, _ := strings.CutPrefix(message.Text, parts[0])
 
-// 	// Обновляем конфигурационный файл
-// 	bot.conf.Update()
-// }
+	switch promptType {
+	case PROMPT_TITLE:
+		bot.conf.Ollama.Prompts.Title = prompt
+	case PROMPT_AFFILIATION:
+		bot.conf.Ollama.Prompts.Affiliation = prompt
+	case PROMPT_SENTIMENT:
+		bot.conf.Ollama.Prompts.SentimentLong = prompt
+	default:
+		return
+	}
+
+	msg := tgbotapi.NewMessage(
+		message.Chat.ID,
+		"Новый промпт успешно применен.",
+	)
+	msg.ReplyToMessageID = message.MessageID
+	bot.api.Send(msg)
+
+	// Обновляем конфигурационный файл
+	bot.conf.Update()
+}
+
+func (bot *Bot) SetAffiliationPrompt(message *tgbotapi.Message) {
+	bot.setPrompt(message, PROMPT_AFFILIATION)
+}
+
+func (bot *Bot) SettTitlePrompt(message *tgbotapi.Message) {
+	bot.setPrompt(message, PROMPT_TITLE)
+}
+
+func (bot *Bot) SetSentimentPrompt(message *tgbotapi.Message) {
+	bot.setPrompt(message, PROMPT_SENTIMENT)
+}
