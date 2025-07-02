@@ -563,9 +563,10 @@ func (bot *Bot) SetOrganizationData(message *tgbotapi.Message) {
 type promptType string
 
 const (
-	PROMPT_AFFILIATION promptType = "affiliation"
-	PROMPT_TITLE       promptType = "title"
-	PROMPT_SENTIMENT   promptType = "sentiment"
+	PROMPT_AFFILIATION     promptType = "affiliation"
+	PROMPT_TITLE           promptType = "title"
+	PROMPT_SENTIMENT_LONG  promptType = "sentiment_long"
+	PROMPT_SENTIMENT_SHORT promptType = "sentiment_short"
 )
 
 func (bot *Bot) setPrompt(message *tgbotapi.Message, promptType promptType) {
@@ -587,8 +588,10 @@ func (bot *Bot) setPrompt(message *tgbotapi.Message, promptType promptType) {
 		bot.conf.Ollama.Prompts.Title = prompt
 	case PROMPT_AFFILIATION:
 		bot.conf.Ollama.Prompts.Affiliation = prompt
-	case PROMPT_SENTIMENT:
+	case PROMPT_SENTIMENT_LONG:
 		bot.conf.Ollama.Prompts.SentimentLong = prompt
+	case PROMPT_SENTIMENT_SHORT:
+		bot.conf.Ollama.Prompts.SentimentShort = prompt
 	default:
 		return
 	}
@@ -613,5 +616,9 @@ func (bot *Bot) SettTitlePrompt(message *tgbotapi.Message) {
 }
 
 func (bot *Bot) SetSentimentPrompt(message *tgbotapi.Message) {
-	bot.setPrompt(message, PROMPT_SENTIMENT)
+	bot.setPrompt(message, PROMPT_SENTIMENT_LONG)
+}
+
+func (bot *Bot) SetSentimentShortPrompt(message *tgbotapi.Message) {
+	bot.setPrompt(message, PROMPT_SENTIMENT_SHORT)
 }

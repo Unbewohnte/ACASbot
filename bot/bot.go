@@ -162,6 +162,13 @@ func (bot *Bot) Init() {
 		Call:        bot.SetSentimentPrompt,
 	})
 
+	bot.NewCommand(Command{
+		Name:        "setpromptses",
+		Description: "Изменить короткий промпт выявления отношения к организации",
+		Example:     "setpromptses Определи отношение к {{ORGANIZATION}} в следующем тексте. Ответь одним предложением. Текст: {{TEXT}}",
+		Call:        bot.SetSentimentShortPrompt,
+	})
+
 	if bot.conf.PushToGoogleSheet {
 		sheetsClient, err := spreadsheet.NewGoogleSheetsClient(
 			context.Background(),
