@@ -31,6 +31,7 @@ var CONFIG_PATH string = ""
 type Config struct {
 	ApiToken                  string             `json:"api_token"`
 	OrganizationName          string             `json:"organization_name"`
+	OrganizationMetadata      string             `json:"organization_metadata"`
 	OllamaModel               string             `json:"ollama_model"`
 	OllamaQueryTimeoutSeconds uint               `json:"ollama_query_timeout_seconds"`
 	MaxContentSize            uint               `json:"max_content_size"`
@@ -45,13 +46,14 @@ type Config struct {
 
 func Default() *Config {
 	return &Config{
-		ApiToken:          "tg_api_token",
-		OrganizationName:  "Жители района, район",
-		OllamaModel:       "lakomoor/vikhr-llama-3.2-1b-instruct:1b",
-		MaxContentSize:    300,
-		Debug:             false,
-		FullAnalysis:      false,
-		PushToGoogleSheet: true,
+		ApiToken:             "tg_api_token",
+		OrganizationName:     "Жители района, район",
+		OrganizationMetadata: "",
+		OllamaModel:          "lakomoor/vikhr-llama-3.2-1b-instruct:1b",
+		MaxContentSize:       300,
+		Debug:                false,
+		FullAnalysis:         false,
+		PushToGoogleSheet:    true,
 		SheetConfig: spreadsheet.NewConfig(
 			nil, "spreadsheet_id", "Sheet 1",
 		),

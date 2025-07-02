@@ -125,7 +125,3 @@ func (i *Inference) Query(prompt string) (string, error) {
 
 	return response.String(), nil
 }
-
-func FormatResponse(analysis string) string {
-	return "📰 *Результаты анализа*\n\n```\n" + analysis + "\n```"
-}

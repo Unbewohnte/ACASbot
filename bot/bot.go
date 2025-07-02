@@ -127,6 +127,20 @@ func (bot *Bot) Init() {
 		Call:        bot.ChangeQueryTimeout,
 	})
 
+	bot.NewCommand(Command{
+		Name:        "ask",
+		Description: "Задать общий запрос модели",
+		Example:     "ask Как получить API token телеграм?",
+		Call:        bot.GeneralQuery,
+	})
+
+	bot.NewCommand(Command{
+		Name:        "setorgdata",
+		Description: "Указать метаданные об организации",
+		Example:     "setorgdata Ростов-на-Дону - город на юге России, включает в себя ...",
+		Call:        bot.SetOrganizationData,
+	})
+
 	if bot.conf.PushToGoogleSheet {
 		sheetsClient, err := spreadsheet.NewGoogleSheetsClient(
 			context.Background(),
@@ -186,7 +200,7 @@ func (bot *Bot) Start() error {
 		update.Message.Text = strings.TrimSpace(update.Message.Text)
 		for _, command := range bot.commands {
 			if strings.HasPrefix(update.Message.Text, command.Name) {
-				command.Call(update.Message)
+				go command.Call(update.Message)
 				break // Дальше не продолжаем
 			}
 		}

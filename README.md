@@ -50,7 +50,7 @@
 
 Подойдет любая модель, способная работать в режиме помощника и воспринимающая требуемый язык (на данный момент - только русский).
 
-Пример: ollama pull lakomoor/vikhr-llama-3.2-1b-instruct:1b
+Пример: ollama pull bambucha/saiga-llama3:latest
 
 ### Google таблица
 
@@ -67,7 +67,7 @@
 {
 	"api_token": "token",
 	"organization_name": "Человечество",
-	"ollama_model": "lakomoor/vikhr-llama-3.2-1b-instruct:1b",
+	"ollama_model": "bambucha/saiga-llama3:latest",
 	"ollama_query_timeout_seconds": 300,
 	"max_content_size": 300,
 	"debug": false,
@@ -168,7 +168,7 @@ Register the bot with @BotFather and get a token.
 
 Any model that can work in assistant mode and understands the required language (currently - only Russian) will do.
 
-Example: ollama pull lakomoor/vikhr-llama-3.2-1b-instruct:1b
+Example: ollama pull bambucha/saiga-llama3:latest
 
 ### Google spreadsheet
 
@@ -185,7 +185,7 @@ When you first run the bot, it will create a configuration file with default dat
 {
 	"api_token": "token",
 	"organization_name": "Humanity",
-	"ollama_model": "lakomoor/vikhr-llama-3.2-1b-instruct:1b",
+	"ollama_model": "bambucha/saiga-llama3:latest",
 	"ollama_query_timeout_seconds": 300,
 	"max_content_size": 300,
 	"debug": false,

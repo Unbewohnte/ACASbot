@@ -91,9 +91,9 @@ func (bot *Bot) formatAnalysisResult(result *ArticleAnalysis) string {
 		response.WriteString(fmt.Sprintf("*Дата публикации:* %s\n\n", result.Content.PubDate))
 	}
 
-	// Добавляем тему (если есть)
-	if bot.conf.FullAnalysis && result.Theme != "" {
-		response.WriteString(fmt.Sprintf("*Тема:* %s\n\n", result.Theme))
+	// Добавляем связь (если есть)
+	if bot.conf.FullAnalysis && result.Affiliation != "" {
+		response.WriteString(fmt.Sprintf("*Связь с \"%s\":* %s\n\n", bot.conf.OrganizationName, result.Affiliation))
 	}
 
 	// Добавляем отношение
@@ -165,6 +165,7 @@ func (bot *Bot) Do(message *tgbotapi.Message) {
 			Source:          extractDomain(url),
 			Summary:         summary,
 			URL:             url,
+			Note:            result.Affiliation,
 			SentimentType:   result.Sentiment,
 		}
 
@@ -382,9 +383,11 @@ func (bot *Bot) PrintConfig(message *tgbotapi.Message) {
 
 	response += "*Нынешняя конфигурация*: \n"
 	response += fmt.Sprintf("*Наименование организации*: `%v`\n", bot.conf.OrganizationName)
+	response += fmt.Sprintf("*Метаданные организации*: `%v`\n", bot.conf.OrganizationMetadata)
 	response += fmt.Sprintf("*Полный анализ?*: `%v`\n", bot.conf.FullAnalysis)
 	response += fmt.Sprintf("*Лимит символов для анализа*: `%v`\n", bot.conf.MaxContentSize)
 	response += fmt.Sprintf("*LLM*: `%v`\n", bot.conf.OllamaModel)
+	response += fmt.Sprintf("*Временной лимит на ответ LLM в секундах*: `%v`\n", bot.conf.OllamaQueryTimeoutSeconds)
 	response += fmt.Sprintf("*Отправлять в Google таблицу?*: `%v`\n", bot.conf.PushToGoogleSheet)
 	response += fmt.Sprintf("*ID Google таблицы*: `%v`\n", bot.conf.SheetConfig.SpreadsheetID)
 	response += fmt.Sprintf("*Наименование листа таблицы*: `%v`\n", bot.conf.SheetConfig.SheetName)
@@ -486,6 +489,65 @@ func (bot *Bot) ChangeQueryTimeout(message *tgbotapi.Message) {
 	msg := tgbotapi.NewMessage(
 		message.Chat.ID,
 		"Время таймаута запросов к LLM успешно изменено.",
+	)
+	msg.ReplyToMessageID = message.MessageID
+	bot.api.Send(msg)
+
+	// Обновляем конфигурационный файл
+	bot.conf.Update()
+}
+
+func (bot *Bot) GeneralQuery(message *tgbotapi.Message) {
+	parts := strings.Split(message.Text, " ")
+	if len(parts) < 2 {
+		msg := tgbotapi.NewMessage(
+			message.Chat.ID,
+			"Не указан запрос.",
+		)
+		msg.ReplyToMessageID = message.MessageID
+		bot.api.Send(msg)
+		return
+	}
+
+	query := strings.Join(parts[1:], " ")
+	answer, err := bot.model.Query(query)
+	if err != nil {
+		msg := tgbotapi.NewMessage(
+			message.Chat.ID,
+			"Не удалось ответить на запрос.",
+		)
+		msg.ReplyToMessageID = message.MessageID
+		bot.api.Send(msg)
+		return
+	}
+
+	msg := tgbotapi.NewMessage(
+		message.Chat.ID,
+		answer,
+	)
+	msg.ReplyToMessageID = message.MessageID
+	bot.api.Send(msg)
+}
+
+func (bot *Bot) SetOrganizationData(message *tgbotapi.Message) {
+	parts := strings.Split(message.Text, " ")
+	if len(parts) < 2 {
+		msg := tgbotapi.NewMessage(
+			message.Chat.ID,
+			"Не указана дополнительная информация об организации.",
+		)
+		msg.ReplyToMessageID = message.MessageID
+		bot.api.Send(msg)
+		return
+	}
+
+	orgData, _ := strings.CutPrefix(message.Text, parts[0])
+
+	bot.conf.OrganizationMetadata = strings.TrimSpace(orgData)
+
+	msg := tgbotapi.NewMessage(
+		message.Chat.ID,
+		"Информация успешно добавлена.",
 	)
 	msg.ReplyToMessageID = message.MessageID
 	bot.api.Send(msg)

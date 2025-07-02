@@ -51,7 +51,7 @@ type ArticleAnalysis struct {
 	URL            string
 	Content        ArticleContent
 	TitleFromModel string
-	Theme          string
+	Affiliation    string
 	Sentiment      string
 	Justification  string
 	Errors         []error
@@ -256,6 +256,9 @@ func (bot *Bot) extractFallbackContent(doc *goquery.Document) (string, error) {
 
 	mainContent = strings.Join(strings.Fields(mainContent), " ")
 	if len(mainContent) < 100 {
+		if bot.conf.Debug {
+			log.Printf("Недостаточно текста: %s", mainContent)
+		}
 		return "", fmt.Errorf("недостаточно текста")
 	}
 
@@ -353,9 +356,9 @@ func (bot *Bot) analyzeArticle(url string) (*ArticleAnalysis, error) {
 
 	// Типы запросов
 	const (
-		QueryTitle     = "title"
-		QueryTheme     = "theme"
-		QuerySentiment = "sentiment"
+		QueryTitle       = "title"
+		QueryAffiliation = "affiliation"
+		QuerySentiment   = "sentiment"
 	)
 
 	needTitle := !result.Content.Success || result.Content.Title == ""
@@ -376,12 +379,12 @@ func (bot *Bot) analyzeArticle(url string) (*ArticleAnalysis, error) {
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
-			response, err := bot.queryTheme(result.Content.Content)
+			response, err := bot.queryAffiliation(result.Content.Content)
 			if err != nil {
 				errors <- fmt.Errorf("тема: %w", err)
 				return
 			}
-			results <- QueryResult{Type: QueryTheme, Content: cleanTheme(response)}
+			results <- QueryResult{Type: QueryAffiliation, Content: cleanTheme(response)}
 		}()
 		go func() {
 			defer wg.Done()
@@ -417,8 +420,8 @@ func (bot *Bot) analyzeArticle(url string) (*ArticleAnalysis, error) {
 		switch res.Type {
 		case QueryTitle:
 			result.TitleFromModel = res.Content
-		case QueryTheme:
-			result.Theme = res.Content
+		case QueryAffiliation:
+			result.Affiliation = res.Content
 		case QuerySentiment:
 			// Парсим структурированный ответ
 			parts := strings.SplitN(res.Content, "\n", 2)

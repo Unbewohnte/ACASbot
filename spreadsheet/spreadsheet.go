@@ -80,6 +80,7 @@ type SheetEntry struct {
 	Source          string
 	Summary         string
 	URL             string
+	Note            string
 	SentimentType   string
 }
 
@@ -95,7 +96,7 @@ func (gsc *GoogleSheetsClient) AddAnalysisResult(entry *SheetEntry) error {
 		entry.Source,
 		entry.Summary,
 		entry.URL,
-		"", // Пустое примечание
+		entry.Note,
 		entry.SentimentType,
 	}
 
