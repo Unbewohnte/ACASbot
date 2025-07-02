@@ -313,7 +313,7 @@ func cleanContent(content string) string {
 }
 
 type QueryResult struct {
-	Type    string // "title", "theme", "sentiment"
+	Type    string
 	Content string
 }
 
@@ -351,7 +351,7 @@ func (bot *Bot) analyzeArticle(url string) (*ArticleAnalysis, error) {
 	}
 
 	var wg sync.WaitGroup
-	results := make(chan QueryResult, 3) // Используем структурированный канал
+	results := make(chan QueryResult, 3)
 	errors := make(chan error, 3)
 
 	// Типы запросов
@@ -384,7 +384,7 @@ func (bot *Bot) analyzeArticle(url string) (*ArticleAnalysis, error) {
 				errors <- fmt.Errorf("тема: %w", err)
 				return
 			}
-			results <- QueryResult{Type: QueryAffiliation, Content: cleanTheme(response)}
+			results <- QueryResult{Type: QueryAffiliation, Content: response}
 		}()
 		go func() {
 			defer wg.Done()

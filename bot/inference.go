@@ -32,7 +32,13 @@ const (
 func (bot *Bot) preparePrompt(template string, text string) string {
 	prompt := strings.ReplaceAll(template, TEMPLATE_TEXT, text)
 	prompt = strings.ReplaceAll(prompt, TEMPLATE_METADATA, bot.conf.OrganizationMetadata)
-	return strings.ReplaceAll(prompt, TEMPLATE_ORGANIZATION, bot.conf.OrganizationName)
+	prompt = strings.ReplaceAll(prompt, TEMPLATE_ORGANIZATION, bot.conf.OrganizationName)
+
+	if bot.conf.Debug {
+		log.Printf("Подготовленный промпт: %s", prompt)
+	}
+
+	return prompt
 }
 
 // Запрос для извлечения заголовка
@@ -73,10 +79,6 @@ func (bot *Bot) querySentiment(
 		)
 	}
 
-	if bot.conf.Debug {
-		log.Printf("Sentiment prompt: %s", prompt)
-	}
-
 	return bot.model.Query(prompt)
 }
 
@@ -91,11 +93,4 @@ func extractSentiment(response string) string {
 	default:
 		return "Информационный"
 	}
-}
-
-func cleanTheme(response string) string {
-	if strings.HasPrefix(response, "Тема:") {
-		return strings.TrimSpace(response[5:])
-	}
-	return response
 }
