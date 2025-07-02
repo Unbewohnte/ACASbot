@@ -28,39 +28,71 @@ import (
 
 var CONFIG_PATH string = ""
 
+type Prompts struct {
+	Affiliation    string `json:"affiliation"`
+	SentimentShort string `json:"sentiment_short"`
+	SentimentLong  string `json:"sentiment_long"`
+	Title          string `json:"title"`
+}
+
+type OllamaConf struct {
+	Model               string  `json:"model"`
+	QueryTimeoutSeconds uint    `json:"query_timeout_seconds"`
+	Prompts             Prompts `json:"prompts"`
+}
+
+type TelegramConf struct {
+	ApiToken       string  `json:"api_token"`
+	Public         bool    `json:"is_public"`
+	AllowedUserIDs []int64 `json:"allowed_user_ids"`
+}
+
+type GoogleSheetsConf struct {
+	Config          spreadsheet.Config `json:"config"`
+	CredentialsFile string             `json:"credentials_file"`
+}
+
 type Config struct {
-	ApiToken                  string             `json:"api_token"`
-	OrganizationName          string             `json:"organization_name"`
-	OrganizationMetadata      string             `json:"organization_metadata"`
-	OllamaModel               string             `json:"ollama_model"`
-	OllamaQueryTimeoutSeconds uint               `json:"ollama_query_timeout_seconds"`
-	MaxContentSize            uint               `json:"max_content_size"`
-	Debug                     bool               `json:"debug"`
-	FullAnalysis              bool               `json:"full_analysis"`
-	PushToGoogleSheet         bool               `json:"push_to_google_sheet"`
-	SheetConfig               spreadsheet.Config `json:"sheet_config"`
-	CredentialsFile           string             `json:"credentials_file"`
-	Public                    bool               `json:"is_public"`
-	AllowedUserIDs            []int64            `json:"allowed_user_ids"`
+	Telegram             TelegramConf     `json:"telegram"`
+	Ollama               OllamaConf       `json:"ollama"`
+	PushToGoogleSheet    bool             `json:"push_to_google_sheet"`
+	Sheets               GoogleSheetsConf `json:"sheets"`
+	FullAnalysis         bool             `json:"full_analysis"`
+	OrganizationName     string           `json:"organization_name"`
+	OrganizationMetadata string           `json:"organization_metadata"`
+	MaxContentSize       uint             `json:"max_content_size"`
+	Debug                bool             `json:"debug"`
 }
 
 func Default() *Config {
 	return &Config{
-		ApiToken:             "tg_api_token",
+		Telegram: TelegramConf{
+			ApiToken:       "tg_api_token",
+			Public:         true,
+			AllowedUserIDs: []int64{},
+		},
+		Ollama: OllamaConf{
+			Model:               "bambucha/saiga-llama3:latest",
+			QueryTimeoutSeconds: 300,
+			Prompts: Prompts{
+				Title:          "Извлеки основной заголовок статьи из следующего текста. Ответ должен содержать только заголовок без дополнительных комментариев.\n\nТекст:\n{{TEXT}}",
+				Affiliation:    "Опиши одним предложением, какая информация в тексте имеет отношение к \"{{ORGANIZATION}}\". Если не имеет, ответь только \"Связи нет\"\n\nТекст:\n{{TEXT}}",
+				SentimentShort: "Определи отношение к \"{{ORGANIZATION}}\" в следующем тексте. Варианты: положительный, информационный, отрицательный. Отвечай одним словом. В случае, если нет конкретного отношения, отвечай \"информационный\".\n\nТекст: \n{{TEXT}}",
+				SentimentLong:  "Определи отношение к \"{{ORGANIZATION}}\" в тексте. Варианты: положительный, информационный, отрицательный. В случае, если нет конкретного отношения, отвечай \"информационный\". Обоснуй ответ только одним предложением. Формат ответа:\n[отношение одним словом]\nОбоснование: [твое объяснение]\n\nТекст:\n{{TEXT}}",
+			},
+		},
 		OrganizationName:     "Жители района, район",
 		OrganizationMetadata: "",
-		OllamaModel:          "lakomoor/vikhr-llama-3.2-1b-instruct:1b",
-		MaxContentSize:       300,
+		MaxContentSize:       3500,
 		Debug:                false,
 		FullAnalysis:         false,
 		PushToGoogleSheet:    true,
-		SheetConfig: spreadsheet.NewConfig(
-			nil, "spreadsheet_id", "Sheet 1",
-		),
-		CredentialsFile:           "secret.json",
-		Public:                    true,
-		AllowedUserIDs:            []int64{},
-		OllamaQueryTimeoutSeconds: 300,
+		Sheets: GoogleSheetsConf{
+			CredentialsFile: "secret.json",
+			Config: spreadsheet.NewConfig(
+				nil, "spreadsheet_id", "Sheet 1",
+			),
+		},
 	}
 }
 
@@ -73,7 +105,7 @@ func (conf *Config) Save(filepath string) error {
 
 	// Убираем ключи доступа к таблицам
 	c := *conf
-	c.SheetConfig.CredentialsJSON = nil
+	c.Sheets.Config.CredentialsJSON = nil
 
 	jsonBytes, err := json.MarshalIndent(&c, "", "\t")
 	if err != nil {

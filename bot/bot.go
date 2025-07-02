@@ -21,14 +21,14 @@ type Bot struct {
 
 func NewBot(config *conf.Config) (*Bot, error) {
 	model, err := inference.NewInference(
-		config.OllamaModel,
-		config.OllamaQueryTimeoutSeconds,
+		config.Ollama.Model,
+		config.Ollama.QueryTimeoutSeconds,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	api, err := tgbotapi.NewBotAPI(config.ApiToken)
+	api, err := tgbotapi.NewBotAPI(config.Telegram.ApiToken)
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +144,7 @@ func (bot *Bot) Init() {
 	if bot.conf.PushToGoogleSheet {
 		sheetsClient, err := spreadsheet.NewGoogleSheetsClient(
 			context.Background(),
-			bot.conf.SheetConfig,
+			bot.conf.Sheets.Config,
 		)
 		if err != nil {
 			log.Panic(err)
@@ -171,9 +171,9 @@ func (bot *Bot) Start() error {
 		log.Printf("[%s] %s", update.Message.From.UserName, update.Message.Text)
 
 		// Проверка на возможность дальнейшего общения с данным пользователем
-		if !bot.conf.Public {
+		if !bot.conf.Telegram.Public {
 			var allowed bool = false
-			for _, allowedID := range bot.conf.AllowedUserIDs {
+			for _, allowedID := range bot.conf.Telegram.AllowedUserIDs {
 				if update.Message.From.ID == allowedID {
 					allowed = true
 					break

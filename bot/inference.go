@@ -19,32 +19,38 @@
 package bot
 
 import (
-	"fmt"
 	"log"
 	"strings"
 )
 
+const (
+	TEMPLATE_TEXT         = "{{TEXT}}"
+	TEMPLATE_ORGANIZATION = "{{ORGANIZATION}}"
+)
+
+func (bot *Bot) preparePrompt(template string, text string) string {
+	prompt := strings.ReplaceAll(template, TEMPLATE_TEXT, text)
+	return strings.ReplaceAll(prompt, TEMPLATE_ORGANIZATION, bot.conf.OrganizationName)
+}
+
 // Запрос для извлечения заголовка
 func (bot *Bot) queryTitle(content string) (string, error) {
-	prompt := fmt.Sprintf(
-		"Извлеки основной заголовок статьи из следующего текста. "+
-			"Ответ должен содержать только заголовок без дополнительных комментариев.\n\nТекст:\n%s",
-		content,
+	return bot.model.Query(
+		bot.preparePrompt(
+			bot.conf.Ollama.Prompts.Title,
+			content,
+		),
 	)
-
-	return bot.model.Query(prompt)
 }
 
 // Запрос для определения связи
 func (bot *Bot) queryAffiliation(content string) (string, error) {
-	prompt := fmt.Sprintf(
-		"Опиши одним предложением, какое отношение \"%s\" (дополнительная информация: %s) имеет к тексту, и имеет ли вообще.\n\nТекст:\n%s",
-		bot.conf.OrganizationName,
-		bot.conf.OrganizationMetadata,
-		content,
+	return bot.model.Query(
+		bot.preparePrompt(
+			bot.conf.Ollama.Prompts.Affiliation,
+			content,
+		),
 	)
-
-	return bot.model.Query(prompt)
 }
 
 // Запрос для определения отношения к организации
@@ -54,18 +60,13 @@ func (bot *Bot) querySentiment(
 ) (string, error) {
 	var prompt string
 	if shortAnswer {
-		prompt = fmt.Sprintf(
-			"Определи отношение к \"%s\" (дополнительная информация: %s) в следующем тексте. Варианты: положительный, информационный, отрицательный. Отвечай одним словом. В случае, если нет конкретного отношения, отвечай \"информационный\".\n\nТекст: \n%s",
-			bot.conf.OrganizationName,
-			bot.conf.OrganizationMetadata,
+		prompt = bot.preparePrompt(
+			bot.conf.Ollama.Prompts.SentimentShort,
 			content,
 		)
 	} else {
-		prompt = fmt.Sprintf(
-			"Определи отношение к \"%s\" (дополнительная информация: %s) в тексте. Варианты: положительный, информационный, отрицательный. В случае, если нет конкретного отношения, отвечай \"информационный\". "+
-				"Обоснуй ответ только одним предложением. Формат ответа:\n[отношение одним словом]\nОбоснование: [твое объяснение]\n\nТекст:\n%s",
-			bot.conf.OrganizationName,
-			bot.conf.OrganizationMetadata,
+		prompt = bot.preparePrompt(
+			bot.conf.Ollama.Prompts.SentimentLong,
 			content,
 		)
 	}

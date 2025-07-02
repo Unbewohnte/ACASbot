@@ -246,7 +246,7 @@ func (bot *Bot) AddUser(message *tgbotapi.Message) {
 		return
 	}
 
-	for _, allowedID := range bot.conf.AllowedUserIDs {
+	for _, allowedID := range bot.conf.Telegram.AllowedUserIDs {
 		if id == allowedID {
 			msg := tgbotapi.NewMessage(
 				message.Chat.ID,
@@ -258,7 +258,7 @@ func (bot *Bot) AddUser(message *tgbotapi.Message) {
 		}
 	}
 
-	bot.conf.AllowedUserIDs = append(bot.conf.AllowedUserIDs, id)
+	bot.conf.Telegram.AllowedUserIDs = append(bot.conf.Telegram.AllowedUserIDs, id)
 
 	// Сохраним в файл
 	bot.conf.Update()
@@ -272,13 +272,13 @@ func (bot *Bot) AddUser(message *tgbotapi.Message) {
 }
 
 func (bot *Bot) TogglePublicity(message *tgbotapi.Message) {
-	if bot.conf.Public {
-		bot.conf.Public = false
+	if bot.conf.Telegram.Public {
+		bot.conf.Telegram.Public = false
 		bot.api.Send(
 			tgbotapi.NewMessage(message.Chat.ID, "Доступ к боту теперь только у избранных."),
 		)
 	} else {
-		bot.conf.Public = true
+		bot.conf.Telegram.Public = true
 		bot.api.Send(
 			tgbotapi.NewMessage(message.Chat.ID, "Доступ к боту теперь у всех."),
 		)
@@ -311,14 +311,14 @@ func (bot *Bot) RemoveUser(message *tgbotapi.Message) {
 		return
 	}
 
-	tmp := bot.conf.AllowedUserIDs
-	bot.conf.AllowedUserIDs = []int64{}
+	tmp := bot.conf.Telegram.AllowedUserIDs
+	bot.conf.Telegram.AllowedUserIDs = []int64{}
 	for _, allowedID := range tmp {
 		if allowedID == id {
 			continue
 		}
 
-		bot.conf.AllowedUserIDs = append(bot.conf.AllowedUserIDs, allowedID)
+		bot.conf.Telegram.AllowedUserIDs = append(bot.conf.Telegram.AllowedUserIDs, allowedID)
 	}
 
 	// Сохраним в файл
@@ -384,15 +384,19 @@ func (bot *Bot) PrintConfig(message *tgbotapi.Message) {
 	response += "*Нынешняя конфигурация*: \n"
 	response += fmt.Sprintf("*Наименование организации*: `%v`\n", bot.conf.OrganizationName)
 	response += fmt.Sprintf("*Метаданные организации*: `%v`\n", bot.conf.OrganizationMetadata)
+	response += fmt.Sprintf("*Промпт заголовка*: `%v`\n", bot.conf.Ollama.Prompts.Title)
+	response += fmt.Sprintf("*Промпт связи с организацией*: `%v`\n", bot.conf.Ollama.Prompts.Affiliation)
+	response += fmt.Sprintf("*Короткий промпт отношения к организации*: `%v`\n", bot.conf.Ollama.Prompts.SentimentLong)
+	response += fmt.Sprintf("*Полный промпт отношения к организации*: `%v`\n", bot.conf.Ollama.Prompts.SentimentShort)
 	response += fmt.Sprintf("*Полный анализ?*: `%v`\n", bot.conf.FullAnalysis)
-	response += fmt.Sprintf("*Лимит символов для анализа*: `%v`\n", bot.conf.MaxContentSize)
-	response += fmt.Sprintf("*LLM*: `%v`\n", bot.conf.OllamaModel)
-	response += fmt.Sprintf("*Временной лимит на ответ LLM в секундах*: `%v`\n", bot.conf.OllamaQueryTimeoutSeconds)
+	response += fmt.Sprintf("*Лимит для анализа*: `%v`\n", bot.conf.MaxContentSize)
+	response += fmt.Sprintf("*LLM*: `%v`\n", bot.conf.Ollama.Model)
+	response += fmt.Sprintf("*Временной лимит на ответ LLM в секундах*: `%v`\n", bot.conf.Ollama.QueryTimeoutSeconds)
 	response += fmt.Sprintf("*Отправлять в Google таблицу?*: `%v`\n", bot.conf.PushToGoogleSheet)
-	response += fmt.Sprintf("*ID Google таблицы*: `%v`\n", bot.conf.SheetConfig.SpreadsheetID)
-	response += fmt.Sprintf("*Наименование листа таблицы*: `%v`\n", bot.conf.SheetConfig.SheetName)
-	response += fmt.Sprintf("*Общедоступный?*: `%v`\n", bot.conf.Public)
-	response += fmt.Sprintf("*Разрешенные пользователи*: `%+v`\n", bot.conf.AllowedUserIDs)
+	response += fmt.Sprintf("*ID Google таблицы*: `%v`\n", bot.conf.Sheets.Config.SpreadsheetID)
+	response += fmt.Sprintf("*Наименование листа таблицы*: `%v`\n", bot.conf.Sheets.Config.SheetName)
+	response += fmt.Sprintf("*Общедоступный?*: `%v`\n", bot.conf.Telegram.Public)
+	response += fmt.Sprintf("*Разрешенные пользователи*: `%+v`\n", bot.conf.Telegram.AllowedUserIDs)
 
 	msg := tgbotapi.NewMessage(
 		message.Chat.ID,
@@ -415,9 +419,9 @@ func (bot *Bot) ChangeSpreadhseetID(message *tgbotapi.Message) {
 		return
 	}
 
-	bot.conf.SheetConfig.SpreadsheetID = parts[1]
+	bot.conf.Sheets.Config.SpreadsheetID = parts[1]
 	if bot.sheet != nil {
-		bot.sheet.SpreadsheetID = bot.conf.SheetConfig.SpreadsheetID
+		bot.sheet.SpreadsheetID = bot.conf.Sheets.Config.SpreadsheetID
 	}
 
 	msg := tgbotapi.NewMessage(
@@ -444,9 +448,9 @@ func (bot *Bot) ChangeSheetName(message *tgbotapi.Message) {
 	}
 
 	newName, _ := strings.CutPrefix(message.Text, parts[0])
-	bot.conf.SheetConfig.SheetName = strings.TrimSpace(newName)
+	bot.conf.Sheets.Config.SheetName = strings.TrimSpace(newName)
 	if bot.sheet != nil {
-		bot.sheet.SheetName = bot.conf.SheetConfig.SheetName
+		bot.sheet.SheetName = bot.conf.Sheets.Config.SheetName
 	}
 
 	msg := tgbotapi.NewMessage(
@@ -483,8 +487,8 @@ func (bot *Bot) ChangeQueryTimeout(message *tgbotapi.Message) {
 		return
 	}
 
-	bot.conf.OllamaQueryTimeoutSeconds = uint(timeoutSeconds)
-	bot.model.TimeoutSeconds = bot.conf.OllamaQueryTimeoutSeconds
+	bot.conf.Ollama.QueryTimeoutSeconds = uint(timeoutSeconds)
+	bot.model.TimeoutSeconds = bot.conf.Ollama.QueryTimeoutSeconds
 
 	msg := tgbotapi.NewMessage(
 		message.Chat.ID,
@@ -555,3 +559,30 @@ func (bot *Bot) SetOrganizationData(message *tgbotapi.Message) {
 	// Обновляем конфигурационный файл
 	bot.conf.Update()
 }
+
+// func (bot *Bot) SetAffiliationPrompt(message *tgbotapi.Message) {
+// 	parts := strings.Split(message.Text, " ")
+// 	if len(parts) < 2 {
+// 		msg := tgbotapi.NewMessage(
+// 			message.Chat.ID,
+// 			"Не указан новый промпт.",
+// 		)
+// 		msg.ReplyToMessageID = message.MessageID
+// 		bot.api.Send(msg)
+// 		return
+// 	}
+
+// 	prompt, _ := strings.CutPrefix(message.Text, parts[0])
+
+// 	bot.conf.OrganizationMetadata = strings.TrimSpace(orgData)
+
+// 	msg := tgbotapi.NewMessage(
+// 		message.Chat.ID,
+// 		"Информация успешно добавлена.",
+// 	)
+// 	msg.ReplyToMessageID = message.MessageID
+// 	bot.api.Send(msg)
+
+// 	// Обновляем конфигурационный файл
+// 	bot.conf.Update()
+// }
