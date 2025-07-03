@@ -53,15 +53,15 @@ type GoogleSheetsConf struct {
 }
 
 type Config struct {
-	Telegram             TelegramConf     `json:"telegram"`
-	Ollama               OllamaConf       `json:"ollama"`
-	PushToGoogleSheet    bool             `json:"push_to_google_sheet"`
-	Sheets               GoogleSheetsConf `json:"sheets"`
-	FullAnalysis         bool             `json:"full_analysis"`
-	OrganizationName     string           `json:"organization_name"`
-	OrganizationMetadata string           `json:"organization_metadata"`
-	MaxContentSize       uint             `json:"max_content_size"`
-	Debug                bool             `json:"debug"`
+	Telegram          TelegramConf     `json:"telegram"`
+	Ollama            OllamaConf       `json:"ollama"`
+	PushToGoogleSheet bool             `json:"push_to_google_sheet"`
+	Sheets            GoogleSheetsConf `json:"sheets"`
+	FullAnalysis      bool             `json:"full_analysis"`
+	Object            string           `json:"object"`
+	ObjectMetadata    string           `json:"object_metadata"`
+	MaxContentSize    uint             `json:"max_content_size"`
+	Debug             bool             `json:"debug"`
 }
 
 func Default() *Config {
@@ -76,17 +76,17 @@ func Default() *Config {
 			QueryTimeoutSeconds: 300,
 			Prompts: Prompts{
 				Title:          "Извлеки основной заголовок статьи из следующего текста. Ответ должен содержать только заголовок без дополнительных комментариев.\n\nТекст:\n{{TEXT}}",
-				Affiliation:    "Опиши одним предложением, какая информация в тексте имеет отношение к \"{{ORGANIZATION}}\". Если не имеет, ответь только \"Связи нет\"\n\nТекст:\n{{TEXT}}",
-				SentimentShort: "Определи отношение к \"{{ORGANIZATION}}\" в следующем тексте. Варианты: положительный, информационный, отрицательный. Отвечай одним словом. В случае, если нет конкретного отношения, отвечай \"информационный\".\n\nТекст: \n{{TEXT}}",
-				SentimentLong:  "Определи отношение к \"{{ORGANIZATION}}\" в тексте. Варианты: положительный, информационный, отрицательный. В случае, если нет конкретного отношения, отвечай \"информационный\". Обоснуй ответ только одним предложением. Формат ответа:\n[отношение одним словом]\nОбоснование: [твое объяснение]\n\nТекст:\n{{TEXT}}",
+				Affiliation:    "Опиши одним предложением, какая информация в тексте имеет отношение к \"{{OBJECT}}\". Если не имеет, ответь только \"Связи нет\"\n\nТекст:\n{{TEXT}}",
+				SentimentShort: "Определи отношение к \"{{OBJECT}}\" в следующем тексте. Варианты: положительный, информационный, отрицательный. Отвечай одним словом. В случае, если нет конкретного отношения, отвечай \"информационный\".\n\nТекст: \n{{TEXT}}",
+				SentimentLong:  "Определи отношение к \"{{OBJECT}}\" в тексте. Варианты: положительный, информационный, отрицательный. В случае, если нет конкретного отношения, отвечай \"информационный\". Обоснуй ответ только одним предложением. Формат ответа:\n[отношение одним словом]\nОбоснование: [твое объяснение]\n\nТекст:\n{{TEXT}}",
 			},
 		},
-		OrganizationName:     "Жители района, район",
-		OrganizationMetadata: "",
-		MaxContentSize:       3500,
-		Debug:                false,
-		FullAnalysis:         false,
-		PushToGoogleSheet:    true,
+		Object:            "Жители района, район",
+		ObjectMetadata:    "",
+		MaxContentSize:    3500,
+		Debug:             false,
+		FullAnalysis:      false,
+		PushToGoogleSheet: true,
 		Sheets: GoogleSheetsConf{
 			CredentialsFile: "secret.json",
 			Config: spreadsheet.NewConfig(

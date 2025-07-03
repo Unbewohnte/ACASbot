@@ -51,22 +51,22 @@ func (bot *Bot) Help(message *tgbotapi.Message) {
 	bot.api.Send(msg)
 }
 
-func (bot *Bot) ChangeOrg(message *tgbotapi.Message) {
+func (bot *Bot) ChangeObj(message *tgbotapi.Message) {
 	parts := strings.Split(strings.TrimSpace(message.Text), " ")
 	if len(parts) < 2 {
 		msg := tgbotapi.NewMessage(
 			message.Chat.ID,
-			"Имя организации не указано",
+			"Имя объекта не указано",
 		)
 		msg.ReplyToMessageID = message.MessageID
 		bot.api.Send(msg)
 		return
 	}
 
-	bot.conf.OrganizationName = strings.Join(parts[1:], " ")
+	bot.conf.Object = strings.Join(parts[1:], " ")
 	msg := tgbotapi.NewMessage(
 		message.Chat.ID,
-		fmt.Sprintf("Организация сменена на \"%s\"", bot.conf.OrganizationName),
+		fmt.Sprintf("Объект сменен на \"%s\"", bot.conf.Object),
 	)
 
 	msg.ReplyToMessageID = message.MessageID
@@ -93,7 +93,7 @@ func (bot *Bot) formatAnalysisResult(result *ArticleAnalysis) string {
 
 	// Добавляем связь (если есть)
 	if bot.conf.FullAnalysis && result.Affiliation != "" {
-		response.WriteString(fmt.Sprintf("*Связь с \"%s\":* %s\n\n", bot.conf.OrganizationName, result.Affiliation))
+		response.WriteString(fmt.Sprintf("*Связь с \"%s\":* %s\n\n", bot.conf.Object, result.Affiliation))
 	}
 
 	// Добавляем отношение
@@ -147,6 +147,10 @@ func (bot *Bot) Do(message *tgbotapi.Message) {
 	msg.ParseMode = "Markdown"
 	msg.ReplyToMessageID = message.MessageID
 	bot.api.Send(msg)
+
+	if bot.conf.Debug {
+		log.Println(msg.Text)
+	}
 
 	// Добавляем в Google Sheets
 	if bot.conf.PushToGoogleSheet {
@@ -212,7 +216,7 @@ func (bot *Bot) About(message *tgbotapi.Message) {
 		message.Chat.ID,
 		`ACAS bot (Article Context And Sentiment bot).
 
-Бот для анализа статей на отношение к определенной организации/личности, а также получения некоторых метаданных: заголовка и краткого описания.
+Бот для анализа статей на отношение к определенной объекта/личности, а также получения некоторых метаданных: заголовка и краткого описания.
 Результаты анализа могут автоматически добавляться в Google таблицу при настройке.
 
 Source: https://github.com/Unbewohnte/ACASbot
@@ -382,12 +386,12 @@ func (bot *Bot) PrintConfig(message *tgbotapi.Message) {
 	var response string = ""
 
 	response += "*Нынешняя конфигурация*: \n"
-	response += fmt.Sprintf("*Наименование организации*: `%v`\n", bot.conf.OrganizationName)
-	response += fmt.Sprintf("*Метаданные организации*: `%v`\n", bot.conf.OrganizationMetadata)
+	response += fmt.Sprintf("*Объект*: `%v`\n", bot.conf.Object)
+	response += fmt.Sprintf("*Метаданные объекта*: `%v`\n", bot.conf.ObjectMetadata)
 	response += fmt.Sprintf("*Промпт заголовка*: `%v`\n", bot.conf.Ollama.Prompts.Title)
 	response += fmt.Sprintf("*Промпт связи с организацией*: `%v`\n", bot.conf.Ollama.Prompts.Affiliation)
-	response += fmt.Sprintf("*Короткий промпт отношения к организации*: `%v`\n", bot.conf.Ollama.Prompts.SentimentShort)
-	response += fmt.Sprintf("*Полный промпт отношения к организации*: `%v`\n", bot.conf.Ollama.Prompts.SentimentLong)
+	response += fmt.Sprintf("*Короткий промпт отношения к объекта*: `%v`\n", bot.conf.Ollama.Prompts.SentimentShort)
+	response += fmt.Sprintf("*Полный промпт отношения к объекта*: `%v`\n", bot.conf.Ollama.Prompts.SentimentLong)
 	response += fmt.Sprintf("*Полный анализ?*: `%v`\n", bot.conf.FullAnalysis)
 	response += fmt.Sprintf("*Лимит для анализа*: `%v`\n", bot.conf.MaxContentSize)
 	response += fmt.Sprintf("*LLM*: `%v`\n", bot.conf.Ollama.Model)
@@ -533,21 +537,21 @@ func (bot *Bot) GeneralQuery(message *tgbotapi.Message) {
 	bot.api.Send(msg)
 }
 
-func (bot *Bot) SetOrganizationData(message *tgbotapi.Message) {
+func (bot *Bot) SetObjectData(message *tgbotapi.Message) {
 	parts := strings.Split(message.Text, " ")
 	if len(parts) < 2 {
 		msg := tgbotapi.NewMessage(
 			message.Chat.ID,
-			"Не указана дополнительная информация об организации.",
+			"Не указана дополнительная информация об объекте.",
 		)
 		msg.ReplyToMessageID = message.MessageID
 		bot.api.Send(msg)
 		return
 	}
 
-	orgData, _ := strings.CutPrefix(message.Text, parts[0])
+	objData, _ := strings.CutPrefix(message.Text, parts[0])
 
-	bot.conf.OrganizationMetadata = strings.TrimSpace(orgData)
+	bot.conf.ObjectMetadata = strings.TrimSpace(objData)
 
 	msg := tgbotapi.NewMessage(
 		message.Chat.ID,

@@ -24,15 +24,15 @@ import (
 )
 
 const (
-	TEMPLATE_TEXT         = "{{TEXT}}"
-	TEMPLATE_ORGANIZATION = "{{ORGANIZATION}}"
-	TEMPLATE_METADATA     = "{{METADATA}}"
+	TEMPLATE_TEXT     = "{{TEXT}}"
+	TEMPLATE_OBJECT   = "{{OBJECT}}"
+	TEMPLATE_METADATA = "{{METADATA}}"
 )
 
 func (bot *Bot) preparePrompt(template string, text string) string {
 	prompt := strings.ReplaceAll(template, TEMPLATE_TEXT, text)
-	prompt = strings.ReplaceAll(prompt, TEMPLATE_METADATA, bot.conf.OrganizationMetadata)
-	prompt = strings.ReplaceAll(prompt, TEMPLATE_ORGANIZATION, bot.conf.OrganizationName)
+	prompt = strings.ReplaceAll(prompt, TEMPLATE_METADATA, bot.conf.ObjectMetadata)
+	prompt = strings.ReplaceAll(prompt, TEMPLATE_OBJECT, bot.conf.Object)
 
 	if bot.conf.Debug {
 		log.Printf("Подготовленный промпт: %s", prompt)

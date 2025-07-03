@@ -48,10 +48,10 @@ func (bot *Bot) Init() {
 	})
 
 	bot.NewCommand(Command{
-		Name:        "changeorg",
-		Description: "Изменить имя организации, отношение к которой будет анализировано.",
-		Example:     "changeorg Человечество",
-		Call:        bot.ChangeOrg,
+		Name:        "changeobj",
+		Description: "Изменить имя объекта, отношение к которому будет анализировано.",
+		Example:     "changeobj Человечество",
+		Call:        bot.ChangeObj,
 	})
 
 	bot.NewCommand(Command{
@@ -135,16 +135,16 @@ func (bot *Bot) Init() {
 	})
 
 	bot.NewCommand(Command{
-		Name:        "setorgdata",
-		Description: "Указать метаданные об организации",
-		Example:     "setorgdata Ростов-на-Дону - город на юге России, включает в себя ...",
-		Call:        bot.SetOrganizationData,
+		Name:        "setobjectdata",
+		Description: "Указать метаданные об объекте",
+		Example:     "setobjectdata Ростов-на-Дону - город на юге России, включает в себя ...",
+		Call:        bot.SetObjectData,
 	})
 
 	bot.NewCommand(Command{
 		Name:        "setpromptaf",
 		Description: "Изменить промпт связи",
-		Example:     "setpromptaf При чем здесь {{ORGANIZATION}}? Текст: {{TEXT}}",
+		Example:     "setpromptaf При чем здесь {{OBJECT}}? Текст: {{TEXT}}",
 		Call:        bot.SetAffiliationPrompt,
 	})
 
@@ -157,15 +157,15 @@ func (bot *Bot) Init() {
 
 	bot.NewCommand(Command{
 		Name:        "setpromptse",
-		Description: "Изменить промпт выявления отношения к организации",
-		Example:     "setpromptse Определи отношение к {{ORGANIZATION}} в следующем тексте. Текст: {{TEXT}}",
+		Description: "Изменить промпт выявления отношения к объекту",
+		Example:     "setpromptse Определи отношение к {{OBJECT}} в следующем тексте. Текст: {{TEXT}}",
 		Call:        bot.SetSentimentPrompt,
 	})
 
 	bot.NewCommand(Command{
 		Name:        "setpromptses",
-		Description: "Изменить короткий промпт выявления отношения к организации",
-		Example:     "setpromptses Определи отношение к {{ORGANIZATION}} в следующем тексте. Ответь одним предложением. Текст: {{TEXT}}",
+		Description: "Изменить короткий промпт выявления отношения к объекту",
+		Example:     "setpromptses Определи отношение к {{OBJECT}} в следующем тексте. Ответь одним предложением. Текст: {{TEXT}}",
 		Call:        bot.SetSentimentShortPrompt,
 	})
 
