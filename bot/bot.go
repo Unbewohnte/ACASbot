@@ -44,6 +44,7 @@ func (bot *Bot) Init() {
 	bot.NewCommand(Command{
 		Name:        "help",
 		Description: "Напечатать вспомогательное сообщение",
+		Group:       "Общее",
 		Call:        bot.Help,
 	})
 
@@ -51,12 +52,14 @@ func (bot *Bot) Init() {
 		Name:        "changeobj",
 		Description: "Изменить имя объекта, отношение к которому будет анализировано.",
 		Example:     "changeobj Человечество",
+		Group:       "Анализ",
 		Call:        bot.ChangeObj,
 	})
 
 	bot.NewCommand(Command{
 		Name:        "toggleanalysis",
 		Description: "Включить или выключить полный анализ статей",
+		Group:       "Анализ",
 		Call:        bot.ToggleAnalysis,
 	})
 
@@ -64,18 +67,21 @@ func (bot *Bot) Init() {
 		Name:        "do",
 		Description: "Анализировать статью",
 		Example:     "do https://example.com/article2",
+		Group:       "Анализ",
 		Call:        bot.Do,
 	})
 
 	bot.NewCommand(Command{
 		Name:        "about",
 		Description: "Напечатать информацию о боте",
+		Group:       "Общее",
 		Call:        bot.About,
 	})
 
 	bot.NewCommand(Command{
 		Name:        "togglepublic",
 		Description: "Включить или выключить публичный/приватный доступ к боту",
+		Group:       "Телеграм",
 		Call:        bot.TogglePublicity,
 	})
 
@@ -83,6 +89,7 @@ func (bot *Bot) Init() {
 		Name:        "adduser",
 		Description: "Добавить доступ к боту определенному пользователю по ID (напишите боту @userinfobot для получения своего ID)",
 		Example:     "adduser 5293210034",
+		Group:       "Телеграм",
 		Call:        bot.AddUser,
 	})
 
@@ -90,6 +97,7 @@ func (bot *Bot) Init() {
 		Name:        "rmuser",
 		Description: "Убрать доступ к боту определенному пользователю по ID",
 		Example:     "rmuser 5293210034",
+		Group:       "Телеграм",
 		Call:        bot.RemoveUser,
 	})
 
@@ -97,12 +105,14 @@ func (bot *Bot) Init() {
 		Name:        "setmaxcontent",
 		Description: "Установить новый лимит символов, извлекаемых из текста статьи",
 		Example:     "setmaxcontent 340",
+		Group:       "Анализ",
 		Call:        bot.ChangeMaxContentSize,
 	})
 
 	bot.NewCommand(Command{
 		Name:        "conf",
 		Description: "Написать текущую конфигурацию",
+		Group:       "Общее",
 		Call:        bot.PrintConfig,
 	})
 
@@ -110,6 +120,7 @@ func (bot *Bot) Init() {
 		Name:        "setsheetname",
 		Description: "Изменить наименование листа таблицы",
 		Example:     "setsheetname Sheet 2",
+		Group:       "Таблицы",
 		Call:        bot.ChangeSheetName,
 	})
 
@@ -117,6 +128,7 @@ func (bot *Bot) Init() {
 		Name:        "setsheetid",
 		Description: "Изменить идентификатор таблицы",
 		Example:     "setsheetid s0m3_1d_l1k3_k4DGHJd1",
+		Group:       "Таблицы",
 		Call:        bot.ChangeSpreadhseetID,
 	})
 
@@ -124,6 +136,7 @@ func (bot *Bot) Init() {
 		Name:        "setquerytimeout",
 		Description: "Изменить допустимое время запросов к LLM в секундах. Если запрос будет обрабатываться дольше допустимого, - запрос окончится досрочно.",
 		Example:     "setquerytimeout 120",
+		Group:       "LLM",
 		Call:        bot.ChangeQueryTimeout,
 	})
 
@@ -131,6 +144,7 @@ func (bot *Bot) Init() {
 		Name:        "ask",
 		Description: "Задать общий запрос модели",
 		Example:     "ask Как получить API token телеграм?",
+		Group:       "LLM",
 		Call:        bot.GeneralQuery,
 	})
 
@@ -138,6 +152,7 @@ func (bot *Bot) Init() {
 		Name:        "setobjectdata",
 		Description: "Указать метаданные об объекте",
 		Example:     "setobjectdata Ростов-на-Дону - город на юге России, включает в себя ...",
+		Group:       "Общее",
 		Call:        bot.SetObjectData,
 	})
 
@@ -145,6 +160,7 @@ func (bot *Bot) Init() {
 		Name:        "setpromptaf",
 		Description: "Изменить промпт связи",
 		Example:     "setpromptaf При чем здесь {{OBJECT}}? Текст: {{TEXT}}",
+		Group:       "LLM",
 		Call:        bot.SetAffiliationPrompt,
 	})
 
@@ -152,6 +168,7 @@ func (bot *Bot) Init() {
 		Name:        "setpromptti",
 		Description: "Изменить промпт нахождения заголовка",
 		Example:     "setpromptti Найди заголовок текста. Текст: {{TEXT}}",
+		Group:       "LLM",
 		Call:        bot.SettTitlePrompt,
 	})
 
@@ -159,6 +176,7 @@ func (bot *Bot) Init() {
 		Name:        "setpromptse",
 		Description: "Изменить промпт выявления отношения к объекту",
 		Example:     "setpromptse Определи отношение к {{OBJECT}} в следующем тексте. Текст: {{TEXT}}",
+		Group:       "LLM",
 		Call:        bot.SetSentimentPrompt,
 	})
 
@@ -166,12 +184,14 @@ func (bot *Bot) Init() {
 		Name:        "setpromptses",
 		Description: "Изменить короткий промпт выявления отношения к объекту",
 		Example:     "setpromptses Определи отношение к {{OBJECT}} в следующем тексте. Ответь одним предложением. Текст: {{TEXT}}",
+		Group:       "LLM",
 		Call:        bot.SetSentimentShortPrompt,
 	})
 
 	bot.NewCommand(Command{
 		Name:        "getlocalsheet",
 		Description: "Запросить файл локальной таблицы с результатами анализов",
+		Group:       "Таблицы",
 		Call:        bot.GetLocalSpreadsheet,
 	})
 

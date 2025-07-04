@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -17,6 +18,7 @@ type Command struct {
 	Name        string
 	Description string
 	Example     string
+	Group       string
 	Call        func(*tgbotapi.Message)
 }
 
@@ -37,10 +39,20 @@ func (bot *Bot) CommandByName(name string) *Command {
 func (bot *Bot) Help(message *tgbotapi.Message) {
 	var helpMessage string
 
+	groups := make(map[string][]Command)
+	sort.Strings(groups)
+
 	for _, command := range bot.commands {
-		helpMessage += fmt.Sprintf("\n*Команда:* \"%s\"\n*Описание:* %s\n", command.Name, command.Description)
-		if command.Example != "" {
-			helpMessage += fmt.Sprintf("*Пример:* `%s`\n", command.Example)
+		groups[command.Group] = append(groups[command.Group], command)
+	}
+
+	for group, commands := range groups {
+		helpMessage += fmt.Sprintf("\n\n*[%s]*\n", group)
+		for _, command := range commands {
+			helpMessage += fmt.Sprintf("\n*Команда:* \"%s\"\n*Описание:* %s\n", command.Name, command.Description)
+			if command.Example != "" {
+				helpMessage += fmt.Sprintf("*Пример:* `%s`\n", command.Example)
+			}
 		}
 	}
 
@@ -406,21 +418,21 @@ func (bot *Bot) PrintConfig(message *tgbotapi.Message) {
 	var response string = ""
 
 	response += "*Нынешняя конфигурация*: \n"
-	response += "\n*ОБЩЕЕ*:\n"
+	response += "\n*[ОБЩЕЕ]*:\n"
 	response += fmt.Sprintf("*Объект*: `%v`\n", bot.conf.Object)
 	response += fmt.Sprintf("*Метаданные объекта*: `%v`\n", bot.conf.ObjectMetadata)
 	response += fmt.Sprintf("*Общедоступный?*: `%v`\n", bot.conf.Telegram.Public)
 	response += fmt.Sprintf("*Полный анализ?*: `%v`\n", bot.conf.FullAnalysis)
 	response += fmt.Sprintf("*Лимит для анализа*: `%v`\n", bot.conf.MaxContentSize)
 	response += fmt.Sprintf("*Разрешенные пользователи*: `%+v`\n", bot.conf.Telegram.AllowedUserIDs)
-	response += "\n*LLM*:\n"
+	response += "\n*[LLM]*:\n"
 	response += fmt.Sprintf("*LLM*: `%v`\n", bot.conf.Ollama.Model)
 	response += fmt.Sprintf("*Временной лимит на ответ LLM в секундах*: `%v`\n", bot.conf.Ollama.QueryTimeoutSeconds)
 	response += fmt.Sprintf("*Промпт заголовка*: `%v`\n", bot.conf.Ollama.Prompts.Title)
 	response += fmt.Sprintf("*Промпт связи с объектом*: `%v`\n", bot.conf.Ollama.Prompts.Affiliation)
 	response += fmt.Sprintf("*Короткий промпт отношения к объекту*: `%v`\n", bot.conf.Ollama.Prompts.SentimentShort)
 	response += fmt.Sprintf("*Полный промпт отношения к объекту*: `%v`\n", bot.conf.Ollama.Prompts.SentimentLong)
-	response += "\n*ТАБЛИЦЫ*:\n"
+	response += "\n*[ТАБЛИЦЫ]*:\n"
 	response += fmt.Sprintf("*Сохранять в локальную таблицу?*: `%v`\n", bot.conf.Sheets.SaveSheetLocally)
 	response += fmt.Sprintf("*Отправлять в Google таблицу?*: `%v`\n", bot.conf.Sheets.PushToGoogleSheet)
 	response += fmt.Sprintf("*Наименование листа таблицы*: `%v`\n", bot.conf.Sheets.Google.Config.SheetName)
