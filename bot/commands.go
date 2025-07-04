@@ -39,16 +39,20 @@ func (bot *Bot) CommandByName(name string) *Command {
 func (bot *Bot) Help(message *tgbotapi.Message) {
 	var helpMessage string
 
-	groups := make(map[string][]Command)
-	sort.Strings(groups)
-
+	commandsByGroup := make(map[string][]Command)
 	for _, command := range bot.commands {
-		groups[command.Group] = append(groups[command.Group], command)
+		commandsByGroup[command.Group] = append(commandsByGroup[command.Group], command)
 	}
 
-	for group, commands := range groups {
+	groups := []string{}
+	for g := range commandsByGroup {
+		groups = append(groups, g)
+	}
+	sort.Strings(groups)
+
+	for _, group := range groups {
 		helpMessage += fmt.Sprintf("\n\n*[%s]*\n", group)
-		for _, command := range commands {
+		for _, command := range commandsByGroup[group] {
 			helpMessage += fmt.Sprintf("\n*Команда:* \"%s\"\n*Описание:* %s\n", command.Name, command.Description)
 			if command.Example != "" {
 				helpMessage += fmt.Sprintf("*Пример:* `%s`\n", command.Example)
