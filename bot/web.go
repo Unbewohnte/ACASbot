@@ -343,8 +343,8 @@ func (bot *Bot) analyzeArticle(url string) (*ArticleAnalysis, error) {
 	}
 
 	// Ограничение размера контента
-	if uint(len(result.Content.Content)) > bot.conf.MaxContentSize {
-		result.Content.Content = result.Content.Content[:bot.conf.MaxContentSize]
+	if uint(len([]rune(result.Content.Content))) > bot.conf.MaxContentSize {
+		result.Content.Content = string([]rune(result.Content.Content)[:bot.conf.MaxContentSize])
 		if bot.conf.Debug {
 			log.Printf("Урезано до: %s\n", result.Content.Content)
 		}

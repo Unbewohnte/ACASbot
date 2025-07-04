@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -152,38 +153,57 @@ func (bot *Bot) Do(message *tgbotapi.Message) {
 		log.Println(msg.Text)
 	}
 
+	if result.Content.PubDate == nil {
+		now := time.Now()
+		result.Content.PubDate = &now
+	}
+
+	summary := result.Content.Title
+	if summary == "" {
+		summary = result.TitleFromModel
+	}
+
+	entry := &spreadsheet.SheetEntry{
+		PublicationDate: *result.Content.PubDate,
+		Source:          extractDomain(url),
+		Summary:         summary,
+		URL:             url,
+		Note:            result.Affiliation,
+		SentimentType:   result.Sentiment,
+	}
+
 	// Добавляем в Google Sheets
-	if bot.conf.PushToGoogleSheet {
-		if result.Content.PubDate == nil {
-			now := time.Now()
-			result.Content.PubDate = &now
-		}
-
-		summary := result.Content.Title
-		if summary == "" {
-			summary = result.TitleFromModel
-		}
-
-		entry := &spreadsheet.SheetEntry{
-			PublicationDate: *result.Content.PubDate,
-			Source:          extractDomain(url),
-			Summary:         summary,
-			URL:             url,
-			Note:            result.Affiliation,
-			SentimentType:   result.Sentiment,
-		}
-
+	if bot.conf.Sheets.PushToGoogleSheet {
 		if err := bot.sheet.AddAnalysisResultWithRetry(entry, 3); err != nil {
 			log.Printf("Ошибка добавления в Google Sheet: %v", err)
 			msg := tgbotapi.NewMessage(
 				message.Chat.ID,
-				"Ошибка внесения изменений в таблицу: "+err.Error(),
+				"❌ Ошибка внесения изменений в онлайн таблицу: "+err.Error(),
 			)
 			bot.api.Send(msg)
 		} else {
 			msg := tgbotapi.NewMessage(
 				message.Chat.ID,
-				"Запись успешно добавлена в таблицу!",
+				"💾 Запись успешно добавлена в онлайн таблицу!",
+			)
+			bot.api.Send(msg)
+		}
+	}
+
+	// Добавляем в локальный файл
+	if bot.conf.Sheets.SaveSheetLocally {
+		if err := spreadsheet.AppendToLocalSheet(bot.conf.Sheets.Local.Filename, entry); err != nil {
+			log.Printf("Ошибка сохранения в локальный файл: %v", err)
+			msg := tgbotapi.NewMessage(
+				message.Chat.ID,
+				"❌ Ошибка сохранения в локальный файл: "+err.Error(),
+			)
+			bot.api.Send(msg)
+		} else {
+			log.Println("Успешно сохранено в локальный файл")
+			msg := tgbotapi.NewMessage(
+				message.Chat.ID,
+				"💾 Результат сохранен в локальный файл!",
 			)
 			bot.api.Send(msg)
 		}
@@ -386,21 +406,25 @@ func (bot *Bot) PrintConfig(message *tgbotapi.Message) {
 	var response string = ""
 
 	response += "*Нынешняя конфигурация*: \n"
+	response += "\n*ОБЩЕЕ*:\n"
 	response += fmt.Sprintf("*Объект*: `%v`\n", bot.conf.Object)
 	response += fmt.Sprintf("*Метаданные объекта*: `%v`\n", bot.conf.ObjectMetadata)
-	response += fmt.Sprintf("*Промпт заголовка*: `%v`\n", bot.conf.Ollama.Prompts.Title)
-	response += fmt.Sprintf("*Промпт связи с организацией*: `%v`\n", bot.conf.Ollama.Prompts.Affiliation)
-	response += fmt.Sprintf("*Короткий промпт отношения к объекта*: `%v`\n", bot.conf.Ollama.Prompts.SentimentShort)
-	response += fmt.Sprintf("*Полный промпт отношения к объекта*: `%v`\n", bot.conf.Ollama.Prompts.SentimentLong)
+	response += fmt.Sprintf("*Общедоступный?*: `%v`\n", bot.conf.Telegram.Public)
 	response += fmt.Sprintf("*Полный анализ?*: `%v`\n", bot.conf.FullAnalysis)
 	response += fmt.Sprintf("*Лимит для анализа*: `%v`\n", bot.conf.MaxContentSize)
+	response += fmt.Sprintf("*Разрешенные пользователи*: `%+v`\n", bot.conf.Telegram.AllowedUserIDs)
+	response += "\n*LLM*:\n"
 	response += fmt.Sprintf("*LLM*: `%v`\n", bot.conf.Ollama.Model)
 	response += fmt.Sprintf("*Временной лимит на ответ LLM в секундах*: `%v`\n", bot.conf.Ollama.QueryTimeoutSeconds)
-	response += fmt.Sprintf("*Отправлять в Google таблицу?*: `%v`\n", bot.conf.PushToGoogleSheet)
-	response += fmt.Sprintf("*ID Google таблицы*: `%v`\n", bot.conf.Sheets.Config.SpreadsheetID)
-	response += fmt.Sprintf("*Наименование листа таблицы*: `%v`\n", bot.conf.Sheets.Config.SheetName)
-	response += fmt.Sprintf("*Общедоступный?*: `%v`\n", bot.conf.Telegram.Public)
-	response += fmt.Sprintf("*Разрешенные пользователи*: `%+v`\n", bot.conf.Telegram.AllowedUserIDs)
+	response += fmt.Sprintf("*Промпт заголовка*: `%v`\n", bot.conf.Ollama.Prompts.Title)
+	response += fmt.Sprintf("*Промпт связи с объектом*: `%v`\n", bot.conf.Ollama.Prompts.Affiliation)
+	response += fmt.Sprintf("*Короткий промпт отношения к объекту*: `%v`\n", bot.conf.Ollama.Prompts.SentimentShort)
+	response += fmt.Sprintf("*Полный промпт отношения к объекту*: `%v`\n", bot.conf.Ollama.Prompts.SentimentLong)
+	response += "\n*ТАБЛИЦЫ*:\n"
+	response += fmt.Sprintf("*Сохранять в локальную таблицу?*: `%v`\n", bot.conf.Sheets.SaveSheetLocally)
+	response += fmt.Sprintf("*Отправлять в Google таблицу?*: `%v`\n", bot.conf.Sheets.PushToGoogleSheet)
+	response += fmt.Sprintf("*Наименование листа таблицы*: `%v`\n", bot.conf.Sheets.Google.Config.SheetName)
+	response += fmt.Sprintf("*ID Google таблицы*: `%v`\n", bot.conf.Sheets.Google.Config.SpreadsheetID)
 
 	msg := tgbotapi.NewMessage(
 		message.Chat.ID,
@@ -423,9 +447,9 @@ func (bot *Bot) ChangeSpreadhseetID(message *tgbotapi.Message) {
 		return
 	}
 
-	bot.conf.Sheets.Config.SpreadsheetID = parts[1]
+	bot.conf.Sheets.Google.Config.SpreadsheetID = parts[1]
 	if bot.sheet != nil {
-		bot.sheet.SpreadsheetID = bot.conf.Sheets.Config.SpreadsheetID
+		bot.sheet.SpreadsheetID = bot.conf.Sheets.Google.Config.SpreadsheetID
 	}
 
 	msg := tgbotapi.NewMessage(
@@ -452,9 +476,9 @@ func (bot *Bot) ChangeSheetName(message *tgbotapi.Message) {
 	}
 
 	newName, _ := strings.CutPrefix(message.Text, parts[0])
-	bot.conf.Sheets.Config.SheetName = strings.TrimSpace(newName)
+	bot.conf.Sheets.Google.Config.SheetName = strings.TrimSpace(newName)
 	if bot.sheet != nil {
-		bot.sheet.SheetName = bot.conf.Sheets.Config.SheetName
+		bot.sheet.SheetName = bot.conf.Sheets.Google.Config.SheetName
 	}
 
 	msg := tgbotapi.NewMessage(
@@ -535,6 +559,8 @@ func (bot *Bot) GeneralQuery(message *tgbotapi.Message) {
 	)
 	msg.ReplyToMessageID = message.MessageID
 	bot.api.Send(msg)
+
+	log.Printf("Ответ: %s", msg.Text)
 }
 
 func (bot *Bot) SetObjectData(message *tgbotapi.Message) {
@@ -625,4 +651,56 @@ func (bot *Bot) SetSentimentPrompt(message *tgbotapi.Message) {
 
 func (bot *Bot) SetSentimentShortPrompt(message *tgbotapi.Message) {
 	bot.setPrompt(message, PROMPT_SENTIMENT_SHORT)
+}
+
+func (bot *Bot) GetLocalSpreadsheet(message *tgbotapi.Message) {
+	if !bot.conf.Sheets.SaveSheetLocally {
+		msg := tgbotapi.NewMessage(
+			message.Chat.ID,
+			"Локальное сохранение результатов отключено!",
+		)
+		bot.api.Send(msg)
+		return
+	}
+
+	if _, err := os.Stat(bot.conf.Sheets.Local.Filename); os.IsNotExist(err) {
+		msg := tgbotapi.NewMessage(
+			message.Chat.ID,
+			"Локальный файл с результатами не найден",
+		)
+		bot.api.Send(msg)
+		return
+	}
+
+	fileBytes, err := os.ReadFile(bot.conf.Sheets.Local.Filename)
+	if err != nil {
+		msg := tgbotapi.NewMessage(
+			message.Chat.ID,
+			"Ошибка чтения файла: "+err.Error(),
+		)
+		bot.api.Send(msg)
+		return
+	}
+
+	file := tgbotapi.FileBytes{
+		Name:  "ACASbot_Results.xlsx",
+		Bytes: fileBytes,
+	}
+
+	// Отправляем документ
+	msg := tgbotapi.NewDocument(
+		message.Chat.ID,
+		file,
+	)
+	msg.Caption = "Локальная копия результатов анализа"
+	msg.ReplyToMessageID = message.MessageID
+
+	if _, err := bot.api.Send(msg); err != nil {
+		log.Printf("Ошибка отправки файла: %v", err)
+		errorMsg := tgbotapi.NewMessage(
+			message.Chat.ID,
+			"Не удалось отправить файл: "+err.Error(),
+		)
+		bot.api.Send(errorMsg)
+	}
 }

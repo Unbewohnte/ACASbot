@@ -43,8 +43,8 @@ func init() {
 		os.Exit(0)
 	}
 
-	if CONFIG.PushToGoogleSheet {
-		file, err := os.Open(CONFIG.Sheets.CredentialsFile)
+	if CONFIG.Sheets.PushToGoogleSheet {
+		file, err := os.Open(CONFIG.Sheets.Google.CredentialsFile)
 		if err != nil {
 			log.Panic(err)
 		}
@@ -55,7 +55,7 @@ func init() {
 			log.Panic(err)
 		}
 
-		CONFIG.Sheets.Config.CredentialsJSON = credentialsJSON
+		CONFIG.Sheets.Google.Config.CredentialsJSON = credentialsJSON
 	}
 }
 

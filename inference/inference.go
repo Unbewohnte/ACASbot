@@ -22,6 +22,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 	"time"
 
@@ -83,10 +84,12 @@ func (i *Inference) CheckModel() error {
 	defer testCancel()
 
 	testPrompt := "Ответь одним словом: работаешь?"
+	think := false
 	var response strings.Builder
 	err = i.Client.Generate(testCtx, &ollama.GenerateRequest{
 		Model:  i.ModelName,
 		Prompt: testPrompt,
+		Think:  &think,
 	}, func(res ollama.GenerateResponse) error {
 		response.WriteString(res.Response)
 		return nil
@@ -96,7 +99,7 @@ func (i *Inference) CheckModel() error {
 		return fmt.Errorf("тестовый запрос к модели не удался: %w", err)
 	}
 
-	log.Printf("Проверка Ollama: модель %s готова к работе (тестовый ответ: %s)", i.ModelName, response.String())
+	log.Printf("Проверка Ollama: модель %s готова к работе (тестовый ответ: %s)", i.ModelName, removeThinkBlock(response.String()))
 	return nil
 }
 
@@ -107,10 +110,12 @@ func (i *Inference) Query(prompt string) (string, error) {
 	)
 	defer cancel()
 
+	think := true
 	var response strings.Builder
 	err := i.Client.Generate(ctx, &ollama.GenerateRequest{
 		Model:  i.ModelName,
 		Prompt: prompt,
+		Think:  &think,
 		Options: map[string]interface{}{
 			"temperature": 0.2, // Для более детерминированного вывода
 		},
@@ -123,5 +128,10 @@ func (i *Inference) Query(prompt string) (string, error) {
 		return "", err
 	}
 
-	return response.String(), nil
+	return removeThinkBlock(response.String()), nil
+}
+
+func removeThinkBlock(input string) string {
+	re := regexp.MustCompile(`(?s)<think>.*?</think>`)
+	return strings.TrimSpace(re.ReplaceAllString(input, ""))
 }

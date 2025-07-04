@@ -169,10 +169,16 @@ func (bot *Bot) Init() {
 		Call:        bot.SetSentimentShortPrompt,
 	})
 
-	if bot.conf.PushToGoogleSheet {
+	bot.NewCommand(Command{
+		Name:        "getlocalsheet",
+		Description: "Запросить файл локальной таблицы с результатами анализов",
+		Call:        bot.GetLocalSpreadsheet,
+	})
+
+	if bot.conf.Sheets.PushToGoogleSheet {
 		sheetsClient, err := spreadsheet.NewGoogleSheetsClient(
 			context.Background(),
-			bot.conf.Sheets.Config,
+			bot.conf.Sheets.Google.Config,
 		)
 		if err != nil {
 			log.Panic(err)

@@ -52,16 +52,26 @@ type GoogleSheetsConf struct {
 	CredentialsFile string             `json:"credentials_file"`
 }
 
-type Config struct {
-	Telegram          TelegramConf     `json:"telegram"`
-	Ollama            OllamaConf       `json:"ollama"`
+type LocalSheetConf struct {
+	Filename string `json:"file"`
+}
+
+type Sheets struct {
 	PushToGoogleSheet bool             `json:"push_to_google_sheet"`
-	Sheets            GoogleSheetsConf `json:"sheets"`
-	FullAnalysis      bool             `json:"full_analysis"`
-	Object            string           `json:"object"`
-	ObjectMetadata    string           `json:"object_metadata"`
-	MaxContentSize    uint             `json:"max_content_size"`
-	Debug             bool             `json:"debug"`
+	SaveSheetLocally  bool             `json:"save_sheet_locally"`
+	Google            GoogleSheetsConf `json:"google"`
+	Local             LocalSheetConf   `json:"local"`
+}
+
+type Config struct {
+	Telegram       TelegramConf `json:"telegram"`
+	Ollama         OllamaConf   `json:"ollama"`
+	Sheets         Sheets       `json:"sheets"`
+	FullAnalysis   bool         `json:"full_analysis"`
+	Object         string       `json:"object"`
+	ObjectMetadata string       `json:"object_metadata"`
+	MaxContentSize uint         `json:"max_content_size"`
+	Debug          bool         `json:"debug"`
 }
 
 func Default() *Config {
@@ -81,18 +91,24 @@ func Default() *Config {
 				SentimentLong:  "Определи отношение к \"{{OBJECT}}\" в тексте. Варианты: положительный, информационный, отрицательный. В случае, если нет конкретного отношения, отвечай \"информационный\". Обоснуй ответ только одним предложением. Формат ответа:\n[отношение одним словом]\nОбоснование: [твое объяснение]\n\nТекст:\n{{TEXT}}",
 			},
 		},
-		Object:            "Жители района, район",
-		ObjectMetadata:    "",
-		MaxContentSize:    3500,
-		Debug:             false,
-		FullAnalysis:      false,
-		PushToGoogleSheet: true,
-		Sheets: GoogleSheetsConf{
-			CredentialsFile: "secret.json",
-			Config: spreadsheet.NewConfig(
-				nil, "spreadsheet_id", "Sheet 1",
-			),
+		Sheets: Sheets{
+			SaveSheetLocally:  true,
+			PushToGoogleSheet: true,
+			Google: GoogleSheetsConf{
+				CredentialsFile: "secret.json",
+				Config: spreadsheet.NewConfig(
+					nil, "spreadsheet_id", "Sheet 1",
+				),
+			},
+			Local: LocalSheetConf{
+				Filename: "RESULTS_ACASbot.xlsx",
+			},
 		},
+		Object:         "Жители района, район",
+		ObjectMetadata: "",
+		MaxContentSize: 3500,
+		Debug:          false,
+		FullAnalysis:   false,
 	}
 }
 
@@ -105,7 +121,7 @@ func (conf *Config) Save(filepath string) error {
 
 	// Убираем ключи доступа к таблицам
 	c := *conf
-	c.Sheets.Config.CredentialsJSON = nil
+	c.Sheets.Google.Config.CredentialsJSON = nil
 
 	jsonBytes, err := json.MarshalIndent(&c, "", "\t")
 	if err != nil {
