@@ -276,7 +276,7 @@ func (bot *Bot) About(message *tgbotapi.Message) {
 		`ACAS bot (Article Context And Sentiment bot).
 
 Бот для анализа статей на отношение к определенной объекта/личности, а также получения некоторых метаданных: заголовка и краткого описания.
-Результаты анализа могут автоматически добавляться в Google таблицу при настройке.
+Результаты анализа могут автоматически добавляться в Google таблицу, локальную таблицу при настройке.
 
 Source: https://github.com/Unbewohnte/ACASbot
 Лицензия: GPLv3
@@ -450,18 +450,18 @@ func (bot *Bot) PrintConfig(message *tgbotapi.Message) {
 	response += fmt.Sprintf("*Метаданные объекта*: `%v`\n", bot.conf.ObjectMetadata)
 	response += fmt.Sprintf("*Общедоступный?*: `%v`\n", bot.conf.Telegram.Public)
 	response += fmt.Sprintf("*Полный анализ?*: `%v`\n", bot.conf.FullAnalysis)
-	response += fmt.Sprintf("*Лимит для анализа*: `%v`\n", bot.conf.MaxContentSize)
+	response += fmt.Sprintf("*Лимит символов текста статьи для анализа*: `%v`\n", bot.conf.MaxContentSize)
 	response += fmt.Sprintf("*Разрешенные пользователи*: `%+v`\n", bot.conf.Telegram.AllowedUserIDs)
 	response += "\n*[LLM]*:\n"
 	response += fmt.Sprintf("*LLM*: `%v`\n", bot.conf.Ollama.Model)
-	response += fmt.Sprintf("*Временной лимит на ответ LLM в секундах*: `%v`\n", bot.conf.Ollama.QueryTimeoutSeconds)
+	response += fmt.Sprintf("*Временной лимит на ответ LLM*: `%v` секунд\n", bot.conf.Ollama.QueryTimeoutSeconds)
 	response += fmt.Sprintf("*Промпт заголовка*: `%v`\n", bot.conf.Ollama.Prompts.Title)
 	response += fmt.Sprintf("*Промпт связи с объектом*: `%v`\n", bot.conf.Ollama.Prompts.Affiliation)
 	response += fmt.Sprintf("*Короткий промпт отношения к объекту*: `%v`\n", bot.conf.Ollama.Prompts.SentimentShort)
 	response += fmt.Sprintf("*Полный промпт отношения к объекту*: `%v`\n", bot.conf.Ollama.Prompts.SentimentLong)
 	response += "\n*[ТАБЛИЦЫ]*:\n"
-	response += fmt.Sprintf("*Сохранять в локальную таблицу?*: `%v`\n", bot.conf.Sheets.SaveSheetLocally)
-	response += fmt.Sprintf("*Отправлять в Google таблицу?*: `%v`\n", bot.conf.Sheets.PushToGoogleSheet)
+	response += fmt.Sprintf("*Сохранять результат анализа в локальную таблицу?*: `%v`\n", bot.conf.Sheets.SaveSheetLocally)
+	response += fmt.Sprintf("*Отправлять результат анализа в Google таблицу?*: `%v`\n", bot.conf.Sheets.PushToGoogleSheet)
 	response += fmt.Sprintf("*Наименование листа таблицы*: `%v`\n", bot.conf.Sheets.Google.Config.SheetName)
 	response += fmt.Sprintf("*ID Google таблицы*: `%v`\n", bot.conf.Sheets.Google.Config.SpreadsheetID)
 
