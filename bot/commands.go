@@ -36,7 +36,33 @@ func (bot *Bot) CommandByName(name string) *Command {
 	return nil
 }
 
+func constructCommandHelpMessage(command Command) string {
+	commandHelp := ""
+	commandHelp += fmt.Sprintf("\n*Команда:* \"%s\"\n*Описание:* %s\n", command.Name, command.Description)
+	if command.Example != "" {
+		commandHelp += fmt.Sprintf("*Пример:* `%s`\n", command.Example)
+	}
+
+	return commandHelp
+}
+
 func (bot *Bot) Help(message *tgbotapi.Message) {
+	parts := strings.Split(message.Text, " ")
+	if len(parts) >= 2 {
+		// Ответить лишь по конкретной команде
+		command := bot.CommandByName(parts[1])
+		if command != nil {
+			helpMessage := constructCommandHelpMessage(*command)
+			msg := tgbotapi.NewMessage(
+				message.Chat.ID,
+				helpMessage,
+			)
+			msg.ParseMode = "Markdown"
+			bot.api.Send(msg)
+			return
+		}
+	}
+
 	var helpMessage string
 
 	commandsByGroup := make(map[string][]Command)
@@ -53,10 +79,7 @@ func (bot *Bot) Help(message *tgbotapi.Message) {
 	for _, group := range groups {
 		helpMessage += fmt.Sprintf("\n\n*[%s]*\n", group)
 		for _, command := range commandsByGroup[group] {
-			helpMessage += fmt.Sprintf("\n*Команда:* \"%s\"\n*Описание:* %s\n", command.Name, command.Description)
-			if command.Example != "" {
-				helpMessage += fmt.Sprintf("*Пример:* `%s`\n", command.Example)
-			}
+			helpMessage += constructCommandHelpMessage(command)
 		}
 	}
 
@@ -740,6 +763,7 @@ func (bot *Bot) ListModels(message *tgbotapi.Message) {
 			model.Details.QuantizationLevel,
 		)
 	}
+	response += fmt.Sprintf("\nТекущая:\n `%s`\n", bot.model.ModelName)
 
 	msg := tgbotapi.NewMessage(
 		message.Chat.ID,

@@ -5,6 +5,7 @@ import (
 	"Unbewohnte/ACASbot/inference"
 	"Unbewohnte/ACASbot/spreadsheet"
 	"context"
+	"fmt"
 	"log"
 	"strings"
 
@@ -232,6 +233,7 @@ func (bot *Bot) Start() error {
 	u.Timeout = 60
 	updates := bot.api.GetUpdatesChan(u)
 
+loop:
 	for update := range updates {
 		if update.Message == nil {
 			continue
@@ -268,9 +270,9 @@ func (bot *Bot) Start() error {
 		// Обработать команды
 		update.Message.Text = strings.TrimSpace(update.Message.Text)
 		for _, command := range bot.commands {
-			if strings.HasPrefix(update.Message.Text, command.Name) {
+			if strings.HasPrefix(strings.ToLower(update.Message.Text), command.Name) {
 				go command.Call(update.Message)
-				break // Дальше не продолжаем
+				goto loop // Дальше не продолжаем
 			}
 		}
 
@@ -282,8 +284,34 @@ func (bot *Bot) Start() error {
 				update.Message.Text = "do " + update.Message.Text
 				go do.Call(update.Message)
 			}
+		} else {
+			// Неверно введенная команда
+			bot.sendCommandSuggestions(
+				update.Message.Chat.ID,
+				strings.ToLower(update.Message.Text),
+			)
 		}
 	}
 
 	return nil
+}
+
+func (bot *Bot) sendCommandSuggestions(chatID int64, input string) {
+	suggestions := bot.findSimilarCommands(input)
+	if len(suggestions) == 0 {
+		return
+	}
+
+	message := "Неизвестная команда. Возможно, имеется в виду одна из этих команд:\n"
+	for _, cmd := range suggestions {
+		command := bot.CommandByName(cmd)
+		if command != nil {
+			message += fmt.Sprintf("`%s` - %s\n", command.Name, command.Description)
+		}
+	}
+	message += "\nДля справки используйте `help`"
+
+	msg := tgbotapi.NewMessage(chatID, message)
+	msg.ParseMode = "Markdown"
+	bot.api.Send(msg)
 }
