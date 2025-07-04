@@ -195,6 +195,21 @@ func (bot *Bot) Init() {
 		Call:        bot.GetLocalSpreadsheet,
 	})
 
+	bot.NewCommand(Command{
+		Name:        "models",
+		Description: "Напечатать доступные боту локальные LLM",
+		Group:       "LLM",
+		Call:        bot.ListModels,
+	})
+
+	bot.NewCommand(Command{
+		Name:        "setmodel",
+		Description: "Указать имя новой локальной LLM, которая будет использоваться",
+		Example:     "setmodel gemma3:12b",
+		Group:       "LLM",
+		Call:        bot.SetModel,
+	})
+
 	if bot.conf.Sheets.PushToGoogleSheet {
 		sheetsClient, err := spreadsheet.NewGoogleSheetsClient(
 			context.Background(),
@@ -265,7 +280,7 @@ func (bot *Bot) Start() error {
 			do := bot.CommandByName("do")
 			if do != nil {
 				update.Message.Text = "do " + update.Message.Text
-				do.Call(update.Message)
+				go do.Call(update.Message)
 			}
 		}
 	}

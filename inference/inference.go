@@ -84,12 +84,10 @@ func (i *Inference) CheckModel() error {
 	defer testCancel()
 
 	testPrompt := "Ответь одним словом: работаешь?"
-	think := false
 	var response strings.Builder
 	err = i.Client.Generate(testCtx, &ollama.GenerateRequest{
 		Model:  i.ModelName,
 		Prompt: testPrompt,
-		Think:  &think,
 	}, func(res ollama.GenerateResponse) error {
 		response.WriteString(res.Response)
 		return nil
@@ -103,6 +101,15 @@ func (i *Inference) CheckModel() error {
 	return nil
 }
 
+func (i *Inference) ListModels() ([]ollama.ListModelResponse, error) {
+	response, err := i.Client.List(context.Background())
+	if err != nil {
+		return nil, err
+	}
+
+	return response.Models, nil
+}
+
 func (i *Inference) Query(prompt string) (string, error) {
 	ctx, cancel := context.WithTimeout(
 		context.Background(),
@@ -110,12 +117,10 @@ func (i *Inference) Query(prompt string) (string, error) {
 	)
 	defer cancel()
 
-	think := true
 	var response strings.Builder
 	err := i.Client.Generate(ctx, &ollama.GenerateRequest{
 		Model:  i.ModelName,
 		Prompt: prompt,
-		Think:  &think,
 		Options: map[string]interface{}{
 			"temperature": 0.2, // Для более детерминированного вывода
 		},

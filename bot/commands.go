@@ -720,3 +720,79 @@ func (bot *Bot) GetLocalSpreadsheet(message *tgbotapi.Message) {
 		bot.api.Send(errorMsg)
 	}
 }
+
+func (bot *Bot) ListModels(message *tgbotapi.Message) {
+	models, err := bot.model.ListModels()
+	if err != nil {
+		errorMsg := tgbotapi.NewMessage(
+			message.Chat.ID,
+			"Не удалось получить список локальных моделей: "+err.Error(),
+		)
+		bot.api.Send(errorMsg)
+		return
+	}
+
+	response := "Доступные модели:\n"
+	for _, model := range models {
+		response += fmt.Sprintf("`%s` (%s, %s)\n",
+			model.Name,
+			model.Details.ParameterSize,
+			model.Details.QuantizationLevel,
+		)
+	}
+
+	msg := tgbotapi.NewMessage(
+		message.Chat.ID,
+		response,
+	)
+	msg.ParseMode = "Markdown"
+	bot.api.Send(msg)
+}
+
+func (bot *Bot) SetModel(message *tgbotapi.Message) {
+	parts := strings.Split(message.Text, " ")
+	if len(parts) < 2 {
+		msg := tgbotapi.NewMessage(
+			message.Chat.ID,
+			"Не указано имя модели.",
+		)
+		msg.ReplyToMessageID = message.MessageID
+		bot.api.Send(msg)
+		return
+	}
+
+	newModel, _ := strings.CutPrefix(message.Text, parts[0])
+	newModel = strings.TrimSpace(newModel)
+
+	availableModels, err := bot.model.ListModels()
+	if err != nil {
+		errorMsg := tgbotapi.NewMessage(
+			message.Chat.ID,
+			"Не удалось получить список локальных моделей: "+err.Error(),
+		)
+		bot.api.Send(errorMsg)
+		return
+	}
+
+	for _, availableModel := range availableModels {
+		if availableModel.Name == newModel {
+			bot.model.ModelName = newModel
+			bot.conf.Ollama.Model = newModel
+
+			msg := tgbotapi.NewMessage(
+				message.Chat.ID,
+				fmt.Sprintf("Модель успешно сменена на \"%s\"", bot.model.ModelName),
+			)
+			bot.api.Send(msg)
+
+			bot.conf.Update()
+			return
+		}
+	}
+
+	errorMsg := tgbotapi.NewMessage(
+		message.Chat.ID,
+		fmt.Sprintf("Такой модели не существует, оставлена \"%s\"", bot.model.ModelName),
+	)
+	bot.api.Send(errorMsg)
+}
