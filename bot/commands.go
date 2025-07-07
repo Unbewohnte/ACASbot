@@ -128,7 +128,15 @@ func (bot *Bot) formatAnalysisResult(result *ArticleAnalysis) string {
 
 	// Дата публикации
 	if result.Content.PubDate != nil {
-		response.WriteString(fmt.Sprintf("*Дата публикации:* %s\n\n", result.Content.PubDate))
+		response.WriteString(
+			fmt.Sprintf("*Дата публикации:* %s\n\n",
+				fmt.Sprintf("%d/%d/%d",
+					result.Content.PubDate.Day(),
+					result.Content.PubDate.Month(),
+					result.Content.PubDate.Year(),
+				),
+			),
+		)
 	}
 
 	// Добавляем связь (если есть)
