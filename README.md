@@ -7,13 +7,17 @@
 
 Это специфический телеграм бот для упрощения анализа статей на предмет отношения к определенной организации, используя запросы к локальной LLM, запущенной на платформе ollama.
 
-Бот обладает несколькими режимами и настройками. Для конкретной информации лучше обратиться к самому боту с командой `help`.
+Бот обладает несколькими режимами и настройками. Для конкретной информации лучше обратиться к самому боту с командой `help` или `help [команда]`.
 
 Имеющийся функционал:
 - изменение имени организации;
 - возможность проведения полного или краткого анализа;
 - включение/выключение публичности бота;
-- добавление/удаление пользователей с доступом к боту.
+- добавление/удаление пользователей с доступом к боту;
+- изменение запросов к модели;
+- смена одной установленной локальной модели на другую на лету;
+- получение информации статьи при помощи headless браузера с фоллбэком на обычный запрос;
+- отправка результатов анализа в Google таблицу и/или локальный XLSX файл.
 
 Бот способен автоматически добавлять в Google таблицу результирующую информацию в формате следующей строки: дата публикации, источник (доменное имя), краткое описание (заголовок), URL, тип отношения к организаии (информационный, отрицательный, положительный).
 
@@ -48,7 +52,7 @@
 
 ### ollama модель
 
-Подойдет любая модель, способная работать в режиме помощника и воспринимающая требуемый язык (на данный момент - только русский).
+Подойдет любая модель, способная работать в режиме помощника и воспринимающая требуемый язык.
 
 Пример: ollama pull bambucha/saiga-llama3:latest
 
@@ -105,6 +109,7 @@
 
 На этом настройка может быть окончена, остальное можно контролировать уже используя самого бота.
 
+Так как промпты вынесены в конфигурационный файл, можно контролировать язык ответа от LLM.
 
 ## Использование
 
@@ -146,7 +151,12 @@ Available functionality:
 - changing the organization name;
 - the ability to conduct a full or brief analysis;
 - enabling/disabling the bot's publicity;
-- adding/removing users with access to the bot.
+- adding/removing users with access to the bot;
+- adding/removing users with access to the bot;
+- changing model prompts;
+- changing one installed local model to another on the fly;
+- getting information using a standalone browser with fallback on a regular request;
+- sending analysis results to a Google spreadsheet and/or a local XLSX file.
 
 The bot can automatically add the resulting information to the Google table in the following line format: publication date, source (domain name), short description (title), URL, type of relation to the organization (informational, negative, positive).
 
@@ -179,7 +189,7 @@ Register the bot with @BotFather and get a token.
 
 ### ollama model
 
-Any model that can work in assistant mode and understands the required language (currently - only Russian) will do.
+Any model that can work in assistant mode and understands the required language will do.
 
 Example: ollama pull bambucha/saiga-llama3:latest
 
@@ -236,6 +246,8 @@ When you first run the bot, it will create a configuration file with default dat
 
 That's it for the setup, the rest can be controlled and changed using the bot itself.
 
+Since the prompts are moved to the configuration file, you can control the language of the response from LLM.
+
 ## Usage
 
 Example:
@@ -256,7 +268,7 @@ Relation: Informational
 Justification: The text does not carry a specific assessment.
 ```
 
-If configured correctly and the `push_to_google_sheet` option is enabled, the information will be added to the Google table.
+If configured correctly and the `push_to_google_sheet` option is enabled, the information will be added to the Google sheet.
 
 ## License
 
