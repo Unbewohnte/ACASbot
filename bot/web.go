@@ -19,16 +19,17 @@
 package bot
 
 import (
-	"bytes"
 	"compress/flate"
 	"compress/gzip"
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"math/rand"
 	"net/http"
 	"net/http/cookiejar"
-	"net/url"
+	"os/exec"
 	"regexp"
 	"strings"
 	"sync"
@@ -37,7 +38,9 @@ import (
 	"unicode/utf8"
 
 	"github.com/PuerkitoBio/goquery"
-	"github.com/go-shiori/go-readability"
+	"github.com/chromedp/cdproto/network"
+	"github.com/chromedp/chromedp"
+	trafilatura "github.com/markusmobius/go-trafilatura"
 )
 
 type ArticleContent struct {
@@ -58,9 +61,186 @@ type ArticleAnalysis struct {
 }
 
 func (bot *Bot) ExtractWebContent(articleURL string) (ArticleContent, error) {
+	var htmlData []byte
+	var err error
+
+	htmlData, err = bot.extractWithHeadlessBrowser(articleURL)
+	if err != nil {
+		log.Printf("Не получилось получить данные при помощи headless браузера: %s. Откат к обычному запросу...", err)
+
+		htmlData, err = bot.extractWithoutHeadless(articleURL)
+		if err != nil {
+			log.Printf("Не получилось получить данные при помощи обычного запроса: %s", err)
+			return ArticleContent{}, err
+		}
+	}
+
+	html := string(htmlData)
+
+	// Используем trafilatura вместо readability
+	parseOpts := trafilatura.Options{
+		ExcludeTables:   false,
+		IncludeLinks:    false,
+		Deduplicate:     true,
+		ExcludeComments: true,
+		EnableFallback:  true,
+	}
+
+	doc, err := trafilatura.Extract(strings.NewReader(html), parseOpts)
+	if err != nil {
+		return ArticleContent{}, fmt.Errorf("ошибка извлечения контента: %w", err)
+	}
+
+	if doc != nil && doc.ContentText != "" {
+		var pubTime *time.Time
+		if !doc.Metadata.Date.IsZero() {
+			pubTime = &doc.Metadata.Date
+		}
+
+		return ArticleContent{
+			Title:   doc.Metadata.Title,
+			Content: doc.ContentText,
+			Success: true,
+			PubDate: pubTime,
+		}, nil
+	}
+
+	// Пробуем кастомный парсер
+	queryDoc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+	if err != nil {
+		return ArticleContent{}, fmt.Errorf("ошибка парсинга HTML: %w", err)
+	}
+
+	return bot.extractCustomContent(queryDoc)
+}
+
+var userAgents = []string{
+	// Современные Chrome (Windows, Mac, Linux)
+	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+	"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+
+	// Firefox
+	"Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:126.0) Gecko/20100101 Firefox/126.0",
+	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:126.0) Gecko/20100101 Firefox/126.0",
+
+	// Safari
+	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
+
+	// Edge
+	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 Edg/125.0.0.0",
+
+	// Мобильные
+	"Mozilla/5.0 (iPhone; CPU iPhone OS 17_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1",
+	"Mozilla/5.0 (Linux; Android 14; SM-S901B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36",
+}
+
+func (bot *Bot) getRandomUserAgent() string {
+	return userAgents[rand.Intn(len(userAgents))]
+}
+
+func (bot *Bot) extractWithHeadlessBrowser(articleURL string) ([]byte, error) {
+	if _, err := exec.LookPath("google-chrome"); err != nil {
+		if _, err := exec.LookPath("chromium"); err != nil {
+			if _, err := exec.LookPath("chrome"); err != nil {
+				return nil, fmt.Errorf("не найден Chrome/Chromium в системе: %w", err)
+			}
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	opts := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.UserAgent(bot.getRandomUserAgent()),
+		chromedp.WindowSize(1280, 800),
+		chromedp.Flag("headless", true),
+		chromedp.Flag("disable-gpu", false),
+		chromedp.Flag("no-sandbox", true),
+		chromedp.Flag("disable-dev-shm-usage", true),
+		chromedp.Flag("disable-setuid-sandbox", true),
+		chromedp.Flag("disable-web-security", true),
+		chromedp.Flag("disable-extensions", true),
+		chromedp.Flag("disable-default-apps", true),
+		chromedp.Flag("disable-background-networking", true),
+	)
+
+	allocCtx, cancel := chromedp.NewExecAllocator(ctx, opts...)
+	defer cancel()
+
+	browserCtx, browserCancel := chromedp.NewContext(allocCtx)
+	defer browserCancel()
+
+	// Обработчик для блокировки ресурсов
+	chromedp.ListenTarget(browserCtx, func(ev interface{}) {
+		if ev, ok := ev.(*network.EventRequestWillBeSent); ok {
+			if shouldBlockRequest(ev.Request.URL) {
+				_ = network.SetBlockedURLs([]string{ev.Request.URL}).Do(browserCtx)
+			}
+		}
+	})
+
+	var htmlContent string
+	actions := []chromedp.Action{
+		network.Enable(),
+		network.SetExtraHTTPHeaders(map[string]interface{}{
+			"Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+			"Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+			"Cache-Control":   "no-cache",
+		}),
+		chromedp.Navigate(articleURL),
+		chromedp.WaitReady("body", chromedp.ByQuery),
+		chromedp.Sleep(2 * time.Second),
+		chromedp.OuterHTML("html", &htmlContent),
+	}
+
+	var err error
+	for attempt := 1; attempt <= 3; attempt++ {
+		if err = chromedp.Run(browserCtx, actions...); err == nil {
+			break
+		}
+
+		// Если контекст отменен, не пытаемся снова
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			break
+		}
+
+		log.Printf("Попытка %d: %v", attempt, err)
+		time.Sleep(time.Duration(attempt) * time.Second)
+
+		// Создаем новый контекст для повторной попытки
+		browserCtx, browserCancel = chromedp.NewContext(allocCtx)
+		defer browserCancel()
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("не удалось загрузить страницу после 3 попыток: %w", err)
+	}
+
+	return []byte(htmlContent), nil
+}
+
+func shouldBlockRequest(url string) bool {
+	blockedPatterns := []string{
+		".png", ".jpg", ".jpeg", ".gif", ".webp",
+		".css", ".woff", ".woff2", ".ttf",
+		".mp4", ".avi", ".webm", ".mov",
+		"doubleclick.net", "googleadservices.com",
+		"analytics", "tracking", "metrics",
+	}
+
+	for _, pattern := range blockedPatterns {
+		if strings.Contains(url, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
+func (bot *Bot) extractWithoutHeadless(articleURL string) ([]byte, error) {
 	jar, err := cookiejar.New(nil)
 	if err != nil {
-		return ArticleContent{}, fmt.Errorf("ошибка создания cookie jar: %w", err)
+		return nil, fmt.Errorf("ошибка создания cookie jar: %w", err)
 	}
 
 	client := &http.Client{
@@ -74,14 +254,14 @@ func (bot *Bot) ExtractWebContent(articleURL string) (ArticleContent, error) {
 
 	req, err := http.NewRequest("GET", articleURL, nil)
 	if err != nil {
-		return ArticleContent{}, fmt.Errorf("ошибка создания запроса: %w", err)
+		return nil, fmt.Errorf("ошибка создания запроса: %w", err)
 	}
 
 	bot.setAdvancedHeaders(req)
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return ArticleContent{}, fmt.Errorf("ошибка загрузки страницы: %w", err)
+		return nil, fmt.Errorf("ошибка загрузки страницы: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -92,7 +272,7 @@ func (bot *Bot) ExtractWebContent(articleURL string) (ArticleContent, error) {
 	case "gzip":
 		reader, err = gzip.NewReader(resp.Body)
 		if err != nil {
-			return ArticleContent{}, fmt.Errorf("ошибка создания gzip reader: %w", err)
+			return nil, fmt.Errorf("ошибка создания gzip reader: %w", err)
 		}
 		defer reader.(*gzip.Reader).Close()
 	case "deflate":
@@ -105,7 +285,7 @@ func (bot *Bot) ExtractWebContent(articleURL string) (ArticleContent, error) {
 	// Читаем тело ответа
 	bodyBytes, err := io.ReadAll(reader)
 	if err != nil {
-		return ArticleContent{}, fmt.Errorf("ошибка чтения тела ответа: %w", err)
+		return nil, fmt.Errorf("ошибка чтения тела ответа: %w", err)
 	}
 
 	// Проверяем, что это текст
@@ -113,42 +293,11 @@ func (bot *Bot) ExtractWebContent(articleURL string) (ArticleContent, error) {
 	if !strings.Contains(contentType, "text/html") && !strings.Contains(contentType, "text/plain") {
 		// Попробуем определить кодировку по содержимому
 		if !utf8.Valid(bodyBytes) {
-			return ArticleContent{}, fmt.Errorf("получены бинарные данные, не похожие на текст")
+			return nil, fmt.Errorf("получены бинарные данные, не похожие на текст")
 		}
 	}
 
-	// Проверка защиты
-	if bot.isProtectedPage(bodyBytes) {
-		return ArticleContent{}, fmt.Errorf("страница защищена (CloudFlare или аналоги)")
-	}
-
-	parsedURL, err := url.Parse(articleURL)
-	if err != nil {
-		return ArticleContent{}, fmt.Errorf("ошибка парсинга URL: %w", err)
-	}
-
-	article, err := readability.FromReader(bytes.NewReader(bodyBytes), parsedURL)
-	if err == nil && len(article.TextContent) > 100 {
-		pubTime := article.PublishedTime
-		if pubTime == nil {
-			pubTime = article.ModifiedTime
-		}
-
-		return ArticleContent{
-			Title:   article.Title,
-			Content: article.TextContent,
-			Success: true,
-			PubDate: pubTime,
-		}, nil
-	}
-
-	// Кастомный парсинг
-	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(bodyBytes))
-	if err != nil {
-		return ArticleContent{}, fmt.Errorf("ошибка парсинга HTML: %w", err)
-	}
-
-	return bot.extractCustomContent(doc)
+	return bodyBytes, nil
 }
 
 func (bot *Bot) setAdvancedHeaders(req *http.Request) {
@@ -170,25 +319,6 @@ func (bot *Bot) setAdvancedHeaders(req *http.Request) {
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
-}
-
-func (bot *Bot) isProtectedPage(body []byte) bool {
-	bodyStr := string(body)
-	return strings.Contains(bodyStr, "Cloudflare") ||
-		strings.Contains(bodyStr, "DDoS protection") ||
-		strings.Contains(bodyStr, "Checking your browser") ||
-		len(bodyStr) < 100 && strings.Contains(bodyStr, "<html")
-}
-
-var userAgents = []string{
-	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Safari/605.1.15",
-	"Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Mobile/15E148 Safari/604.1",
-	"Mozilla/5.0 (Linux; Android 13; SM-S901B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Mobile Safari/537.36",
-}
-
-func (bot *Bot) getRandomUserAgent() string {
-	return userAgents[rand.Intn(len(userAgents))]
 }
 
 func (bot *Bot) extractCustomContent(doc *goquery.Document) (ArticleContent, error) {
