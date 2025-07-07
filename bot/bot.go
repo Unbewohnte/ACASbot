@@ -309,7 +309,7 @@ func (bot *Bot) sendCommandSuggestions(chatID int64, input string) {
 			message += fmt.Sprintf("`%s` - %s\n", command.Name, command.Description)
 		}
 	}
-	message += "\nДля справки используйте `help`"
+	message += "\nДля справки используйте `help [команда](опционально)`"
 
 	msg := tgbotapi.NewMessage(chatID, message)
 	msg.ParseMode = "Markdown"
