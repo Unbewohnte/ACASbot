@@ -197,6 +197,13 @@ func (bot *Bot) Init() {
 	})
 
 	bot.NewCommand(Command{
+		Name:        "clearlocalsheet",
+		Description: "Удалить файл локальной таблицы с результатами анализов",
+		Group:       "Таблицы",
+		Call:        bot.ClearLocalSpreadsheet,
+	})
+
+	bot.NewCommand(Command{
 		Name:        "models",
 		Description: "Напечатать доступные боту локальные LLM",
 		Group:       "LLM",

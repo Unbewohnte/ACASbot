@@ -752,6 +752,34 @@ func (bot *Bot) GetLocalSpreadsheet(message *tgbotapi.Message) {
 	}
 }
 
+func (bot *Bot) ClearLocalSpreadsheet(message *tgbotapi.Message) {
+	if !bot.conf.Sheets.SaveSheetLocally {
+		msg := tgbotapi.NewMessage(
+			message.Chat.ID,
+			"Локальное сохранение результатов отключено!",
+		)
+		bot.api.Send(msg)
+		return
+	}
+
+	if _, err := os.Stat(bot.conf.Sheets.Local.Filename); os.IsNotExist(err) {
+		msg := tgbotapi.NewMessage(
+			message.Chat.ID,
+			"Локальный файл с результатами не найден",
+		)
+		bot.api.Send(msg)
+		return
+	}
+
+	os.Remove(bot.conf.Sheets.Local.Filename)
+
+	msg := tgbotapi.NewMessage(
+		message.Chat.ID,
+		"Локальный файл удален",
+	)
+	bot.api.Send(msg)
+}
+
 func (bot *Bot) ListModels(message *tgbotapi.Message) {
 	models, err := bot.model.ListModels()
 	if err != nil {

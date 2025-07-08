@@ -34,7 +34,6 @@ func AppendToLocalSheet(fileName string, entry *SheetEntry) error {
 	file, err := xlsx.OpenFile(fileName)
 	if err != nil {
 		// Создаем новый
-		log.Println(err)
 		file = xlsx.NewFile()
 	}
 
