@@ -29,7 +29,6 @@ import (
 	"math/rand"
 	"net/http"
 	"net/http/cookiejar"
-	"os/exec"
 	"regexp"
 	"strings"
 	"sync"
@@ -38,7 +37,9 @@ import (
 	"unicode/utf8"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/chromedp/cdproto/input"
 	"github.com/chromedp/cdproto/network"
+	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
 	trafilatura "github.com/markusmobius/go-trafilatura"
 )
@@ -140,45 +141,23 @@ func (bot *Bot) getRandomUserAgent() string {
 }
 
 func (bot *Bot) extractWithHeadlessBrowser(articleURL string) ([]byte, error) {
-	if _, err := exec.LookPath("google-chrome"); err != nil {
-		if _, err := exec.LookPath("chromium"); err != nil {
-			if _, err := exec.LookPath("chrome"); err != nil {
-				return nil, fmt.Errorf("не найден Chrome/Chromium в системе: %w", err)
-			}
-		}
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.UserAgent(bot.getRandomUserAgent()),
 		chromedp.WindowSize(1280, 800),
 		chromedp.Flag("headless", true),
-		chromedp.Flag("disable-gpu", false),
 		chromedp.Flag("no-sandbox", true),
 		chromedp.Flag("disable-dev-shm-usage", true),
-		chromedp.Flag("disable-setuid-sandbox", true),
-		chromedp.Flag("disable-web-security", true),
-		chromedp.Flag("disable-extensions", true),
-		chromedp.Flag("disable-default-apps", true),
-		chromedp.Flag("disable-background-networking", true),
+		chromedp.Flag("ignore-certificate-errors", true),
+
+		// Блокируем ненужные ресурсы
+		chromedp.Flag("blink-settings", "imagesEnabled=false,stylesheetEnabled=false,scriptEnabled=true"),
 	)
 
 	allocCtx, cancel := chromedp.NewExecAllocator(ctx, opts...)
 	defer cancel()
-
-	browserCtx, browserCancel := chromedp.NewContext(allocCtx)
-	defer browserCancel()
-
-	// Обработчик для блокировки ресурсов
-	chromedp.ListenTarget(browserCtx, func(ev interface{}) {
-		if ev, ok := ev.(*network.EventRequestWillBeSent); ok {
-			if shouldBlockRequest(ev.Request.URL) {
-				_ = network.SetBlockedURLs([]string{ev.Request.URL}).Do(browserCtx)
-			}
-		}
-	})
 
 	var htmlContent string
 	actions := []chromedp.Action{
@@ -188,29 +167,41 @@ func (bot *Bot) extractWithHeadlessBrowser(articleURL string) ([]byte, error) {
 			"Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
 			"Cache-Control":   "no-cache",
 		}),
+		// Блокируем загрузку тяжелых ресурсов
+		network.SetBlockedURLs([]string{
+			"*.png", "*.jpg", "*.jpeg", "*.gif", "*.svg", "*.webp",
+			"*.css", "*.woff", "*.woff2", "*.ttf", "*.eot",
+			"*.mp4", "*.webm", "*.ogg", "*.avi",
+		}),
 		chromedp.Navigate(articleURL),
+
+		// Обнуляем флаг webdriver
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			_, _, err := runtime.Evaluate(`delete navigator.__proto__.webdriver`).Do(ctx)
+			return err
+		}),
+
+		chromedp.Sleep(3 * time.Second), // Минимальная задержка для старта JS
+		chromedp.MouseEvent(input.MouseMoved, 640, 400),
+		chromedp.ScrollIntoView("body"),
 		chromedp.WaitReady("body", chromedp.ByQuery),
-		chromedp.Sleep(2 * time.Second),
 		chromedp.OuterHTML("html", &htmlContent),
 	}
 
 	var err error
 	for attempt := 1; attempt <= 3; attempt++ {
+		browserCtx, browserCancel := chromedp.NewContext(allocCtx)
+		defer browserCancel()
+
 		if err = chromedp.Run(browserCtx, actions...); err == nil {
 			break
 		}
 
-		// Если контекст отменен, не пытаемся снова
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			break
 		}
 
-		log.Printf("Попытка %d: %v", attempt, err)
-		time.Sleep(time.Duration(attempt) * time.Second)
-
-		// Создаем новый контекст для повторной попытки
-		browserCtx, browserCancel = chromedp.NewContext(allocCtx)
-		defer browserCancel()
+		time.Sleep(time.Duration(attempt*2) * time.Second)
 	}
 
 	if err != nil {
