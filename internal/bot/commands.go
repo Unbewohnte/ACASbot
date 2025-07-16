@@ -267,7 +267,7 @@ func (bot *Bot) Do(message *tgbotapi.Message) {
 	}
 	bot.sendSuccess(message.Chat.ID, "Статья успешно добавлена в базу", message.MessageID)
 
-	duplicatesText := bot.generateDuplicatesMessage(verified)
+	duplicatesText := bot.generateDuplicatesMessage(verified, *art)
 
 	// Формирование итогового сообщения
 	responseText := bot.formatAnalysisResult(art)
@@ -1059,5 +1059,105 @@ func (bot *Bot) GenerateSpreadsheet(message *tgbotapi.Message) {
 	if err != nil {
 		log.Printf("Ошибка отправки файла: %v", err)
 		bot.sendError(message.Chat.ID, "Не удалось отправить файл: "+err.Error(), message.MessageID)
+	}
+}
+
+func (bot *Bot) FindSimilar(message *tgbotapi.Message) {
+	parts := strings.Split(message.Text, " ")
+	if len(parts) < 2 {
+		msg := tgbotapi.NewMessage(message.Chat.ID, "Вы не указали URL")
+		msg.ReplyToMessageID = message.MessageID
+		bot.api.Send(msg)
+		return
+	}
+	url := parts[1]
+	if !strings.HasPrefix(url, "http") {
+		msg := tgbotapi.NewMessage(message.Chat.ID, "Пожалуйста, отправьте действительный URL, начинающийся с http/https")
+		msg.ReplyToMessageID = message.MessageID
+		bot.api.Send(msg)
+		return
+	}
+
+	// Показываем индикатор загрузки
+	processingMsg := tgbotapi.NewMessage(message.Chat.ID, "🔍 Ищу похожие статьи...")
+	processingMsg.ReplyToMessageID = message.MessageID
+	sentMsg, _ := bot.api.Send(processingMsg)
+	defer func() {
+		deleteMsg := tgbotapi.NewDeleteMessage(message.Chat.ID, sentMsg.MessageID)
+		bot.api.Send(deleteMsg)
+	}()
+
+	// Извлекаем содержимое статьи
+	art, err := bot.getArticle(url)
+	if err != nil {
+		errorMsg := tgbotapi.NewMessage(message.Chat.ID, "❌ Ошибка загрузки статьи: "+err.Error())
+		errorMsg.ReplyToMessageID = message.MessageID
+		bot.api.Send(errorMsg)
+		return
+	}
+
+	// Получаем пользовательские настройки
+	userConfig, err := bot.conf.GetDB().GetUserConfig(message.From.ID)
+	if err != nil {
+		bot.sendError(message.Chat.ID, "Ошибка загрузки настроек", message.MessageID)
+		return
+	}
+
+	// Проверяем точные дубликаты
+	if existing, err := bot.conf.GetDB().GetExactDuplicate(art.Content); err == nil && existing != nil {
+		bot.notifyExactDuplicate(message, existing)
+		return
+	}
+
+	// Получаем эмбеддинг
+	embedding, err := bot.model.GetEmbedding(art.Content)
+	if err != nil {
+		bot.sendError(message.Chat.ID, "Ошибка векторизации", message.MessageID)
+		return
+	}
+
+	// Ищем похожие статьи
+	similar, err := bot.conf.GetDB().FindSimilar(
+		embedding,
+		userConfig.VectorSimilarityThreshold,
+		userConfig.DaysLookback,
+	)
+	if err != nil {
+		bot.sendError(message.Chat.ID, "Ошибка поиска похожих статей", message.MessageID)
+		return
+	}
+
+	// Формируем сообщение с результатами
+	var duplicatesText string
+	if len(similar) > 0 {
+		composite := similarity.NewCompositeSimilarity(userConfig.CompositeVectorWeight)
+		var verified []article.Article
+
+		for _, candidate := range similar {
+			score, err := composite.Compare(
+				art.Content,
+				candidate.Content,
+				embedding,
+				candidate.Embedding,
+			)
+			if err == nil && score >= userConfig.FinalSimilarityThreshold {
+				candidate.TrueSimilarity = score
+				verified = append(verified, candidate)
+			}
+		}
+
+		duplicatesText = bot.generateDuplicatesMessage(verified, *art)
+	}
+
+	// Формируем и отправляем результат
+	if duplicatesText != "" {
+		msg := tgbotapi.NewMessage(message.Chat.ID, duplicatesText)
+		msg.ParseMode = "Markdown"
+		msg.ReplyToMessageID = message.MessageID
+		bot.api.Send(msg)
+	} else {
+		msg := tgbotapi.NewMessage(message.Chat.ID, "✅ Похожие статьи не найдены")
+		msg.ReplyToMessageID = message.MessageID
+		bot.api.Send(msg)
 	}
 }

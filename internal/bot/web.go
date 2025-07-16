@@ -437,7 +437,7 @@ type QueryResult struct {
 	Content string
 }
 
-func (bot *Bot) analyzeArticle(url string) (*article.Article, error) {
+func (bot *Bot) getArticle(url string) (*article.Article, error) {
 	art, err := bot.ExtractWebContent(url)
 	if err != nil {
 		return nil, err
@@ -458,6 +458,15 @@ func (bot *Bot) analyzeArticle(url string) (*article.Article, error) {
 		if bot.conf.Debug {
 			log.Printf("Урезано до: %s\n", art.Content)
 		}
+	}
+
+	return art, nil
+}
+
+func (bot *Bot) analyzeArticle(url string) (*article.Article, error) {
+	art, err := bot.getArticle(url)
+	if err != nil {
+		return nil, err
 	}
 
 	var wg sync.WaitGroup

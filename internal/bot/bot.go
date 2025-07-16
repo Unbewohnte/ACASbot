@@ -194,6 +194,14 @@ func (bot *Bot) Init() {
 	})
 
 	bot.NewCommand(Command{
+		Name:        "findsimilar",
+		Description: "Определить уникальность статьи без проведения полного анализа. Если есть похожие - сообщить.",
+		Group:       "Анализ",
+		Example:     "findsimilar https://example.com/article",
+		Call:        bot.FindSimilar,
+	})
+
+	bot.NewCommand(Command{
 		Name:        "models",
 		Description: "Напечатать доступные боту локальные LLM",
 		Group:       "LLM",

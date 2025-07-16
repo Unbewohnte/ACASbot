@@ -107,7 +107,7 @@ func (bot *Bot) saveNewArticle(art *article.Article, embedding []float64, source
 	return bot.conf.GetDB().SaveArticle(newArticle)
 }
 
-func (bot *Bot) generateDuplicatesMessage(similar []article.Article) string {
+func (bot *Bot) generateDuplicatesMessage(similar []article.Article, original article.Article) string {
 	if len(similar) == 0 {
 		return ""
 	}
@@ -117,7 +117,7 @@ func (bot *Bot) generateDuplicatesMessage(similar []article.Article) string {
 		msgText += fmt.Sprintf("%d. [\"%s\"](%s)\n", i+1, art.Title, art.SourceURL)
 		msgText += fmt.Sprintf("- Добавлена: %s\n", time.Unix(art.CreatedAt, 0).Format("2006-01-02 15:04"))
 		msgText += fmt.Sprintf("- Общая схожесть: %.0f%%\n", art.TrueSimilarity*100)
-		msgText += fmt.Sprintf("-- Схожесть текста: %.0f%%\n", similarity.CalculateEnhancedTextSimilarity(art.Content, art.Content)*100)
+		msgText += fmt.Sprintf("-- Схожесть текста: %.0f%%\n", similarity.CalculateEnhancedTextSimilarity(original.Content, art.Content)*100)
 		msgText += fmt.Sprintf("-- Схожесть векторов: %.0f%%\n", art.Similarity*100)
 		msgText += fmt.Sprintf("- Цитирований: %d\n", art.Citations)
 

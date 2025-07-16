@@ -63,12 +63,12 @@ func (bot *Bot) queryAffiliation(content string) (string, error) {
 
 // Запрос для определения отношения к организации
 func (bot *Bot) querySentiment(content string) (string, error) {
-	prompt := bot.preparePrompt(
-		bot.conf.Ollama.Prompts.Sentiment,
-		content,
+	return bot.model.Query(
+		bot.preparePrompt(
+			bot.conf.Ollama.Prompts.Sentiment,
+			content,
+		),
 	)
-
-	return bot.model.Query(prompt)
 }
 
 func extractSentiment(response string) string {
