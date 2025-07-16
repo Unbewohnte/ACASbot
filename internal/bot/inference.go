@@ -31,8 +31,8 @@ const (
 
 func (bot *Bot) preparePrompt(template string, text string) string {
 	prompt := strings.ReplaceAll(template, TEMPLATE_TEXT, text)
-	prompt = strings.ReplaceAll(prompt, TEMPLATE_METADATA, bot.conf.ObjectMetadata)
-	prompt = strings.ReplaceAll(prompt, TEMPLATE_OBJECT, bot.conf.Object)
+	prompt = strings.ReplaceAll(prompt, TEMPLATE_METADATA, bot.conf.Analysis.ObjectMetadata)
+	prompt = strings.ReplaceAll(prompt, TEMPLATE_OBJECT, bot.conf.Analysis.Object)
 
 	if bot.conf.Debug {
 		log.Printf("Подготовленный промпт: %s", prompt)
@@ -62,22 +62,11 @@ func (bot *Bot) queryAffiliation(content string) (string, error) {
 }
 
 // Запрос для определения отношения к организации
-func (bot *Bot) querySentiment(
-	content string,
-	shortAnswer bool,
-) (string, error) {
-	var prompt string
-	if shortAnswer {
-		prompt = bot.preparePrompt(
-			bot.conf.Ollama.Prompts.SentimentShort,
-			content,
-		)
-	} else {
-		prompt = bot.preparePrompt(
-			bot.conf.Ollama.Prompts.SentimentLong,
-			content,
-		)
-	}
+func (bot *Bot) querySentiment(content string) (string, error) {
+	prompt := bot.preparePrompt(
+		bot.conf.Ollama.Prompts.Sentiment,
+		content,
+	)
 
 	return bot.model.Query(prompt)
 }

@@ -19,24 +19,34 @@
 package main
 
 import (
-	"Unbewohnte/ACASbot/bot"
-	"Unbewohnte/ACASbot/conf"
+	"Unbewohnte/ACASbot/internal/bot"
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 )
 
 const CONFIG_NAME string = "config.json"
 
-var CONFIG *conf.Config
+var (
+	WDIR   string = "."
+	CONFIG *bot.Config
+)
 
 func init() {
 	var err error
-	CONFIG, err = conf.From(CONFIG_NAME)
+	exePath, err := os.Executable()
+	if err != nil {
+		log.Panic("Не удалось получить путь к исполняемому файлу: " + err.Error())
+	}
+	WDIR = filepath.Dir(exePath)
+	configPath := filepath.Join(WDIR, CONFIG_NAME)
+
+	CONFIG, err = bot.ConfigFrom(configPath)
 	if err != nil {
 		log.Println("Не удалось открыть конфигурационный файл: " + err.Error() + ". Создаем новый...")
-		CONFIG = conf.Default()
-		err = CONFIG.Save(CONFIG_NAME)
+		CONFIG = bot.DefaultConfig()
+		err = CONFIG.Save(configPath)
 		if err != nil {
 			log.Panic("Не получилось создать новый конфигурационный файл: " + err.Error())
 		}

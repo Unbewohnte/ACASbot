@@ -19,8 +19,11 @@
 package spreadsheet
 
 import (
+	"Unbewohnte/ACASbot/internal/article"
 	"context"
 	"fmt"
+	"net/url"
+	"strings"
 	"time"
 
 	"golang.org/x/oauth2/google"
@@ -75,29 +78,29 @@ func NewGoogleSheetsClient(ctx context.Context, conf Config) (*GoogleSheetsClien
 	}, nil
 }
 
-type SheetEntry struct {
-	PublicationDate time.Time
-	Source          string
-	Summary         string
-	URL             string
-	Note            string
-	SentimentType   string
-}
-
 func formatDate(date time.Time) string {
 	return fmt.Sprintf("%d/%d/%d", date.Day(), date.Month(), date.Year())
 }
 
 // AddAnalysisResult добавляет результат анализа в таблицу
-func (gsc *GoogleSheetsClient) AddAnalysisResult(entry *SheetEntry) error {
+func (gsc *GoogleSheetsClient) AddAnalysisResult(art *article.Article) error {
 	// Формируем строку для добавления
+	u, err := url.Parse(art.SourceURL)
+	if err != nil {
+		u = &url.URL{
+			RawPath: art.SourceURL,
+		}
+	}
+
 	values := []interface{}{
-		formatDate(entry.PublicationDate),
-		entry.Source,
-		entry.Summary,
-		entry.URL,
-		entry.Note,
-		entry.SentimentType,
+		formatDate(time.Unix(art.PublishedAt, 0)),
+		u.Hostname(),
+		art.Title,
+		art.SourceURL,
+		art.Affiliation,
+		art.Sentiment,
+		art.Citations,
+		strings.Join(art.SimilarURLs, ";"),
 	}
 
 	// Создаем запрос на добавление
@@ -129,10 +132,10 @@ func (gsc *GoogleSheetsClient) AddAnalysisResult(entry *SheetEntry) error {
 	return nil
 }
 
-func (gsc *GoogleSheetsClient) AddAnalysisResultWithRetry(entry *SheetEntry, maxRetries int) error {
+func (gsc *GoogleSheetsClient) AddAnalysisResultWithRetry(art *article.Article, maxRetries int) error {
 	var lastErr error
 	for i := 0; i < maxRetries; i++ {
-		if err := gsc.AddAnalysisResult(entry); err == nil {
+		if err := gsc.AddAnalysisResult(art); err == nil {
 			return nil
 		} else {
 			lastErr = err
@@ -142,15 +145,25 @@ func (gsc *GoogleSheetsClient) AddAnalysisResultWithRetry(entry *SheetEntry, max
 	return lastErr
 }
 
-func (gsc *GoogleSheetsClient) BatchAddResults(entries []*SheetEntry) error {
+func (gsc *GoogleSheetsClient) BatchAddResults(articles []*article.Article) error {
 	var vr sheets.ValueRange
-	for _, entry := range entries {
+	for _, art := range articles {
+		u, err := url.Parse(art.SourceURL)
+		if err != nil {
+			u = &url.URL{
+				RawPath: art.SourceURL,
+			}
+		}
+
 		vr.Values = append(vr.Values, []interface{}{
-			entry.PublicationDate.Format("2006-01-02"),
-			entry.Source,
-			entry.Summary,
-			entry.URL,
-			entry.SentimentType,
+			formatDate(time.Unix(art.PublishedAt, 0)),
+			u.Hostname(),
+			art.Title,
+			art.SourceURL,
+			art.Affiliation,
+			art.Sentiment,
+			art.Citations,
+			strings.Join(art.SimilarURLs, ";"),
 		})
 	}
 

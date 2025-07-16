@@ -19,9 +19,10 @@
 package inference
 
 import (
+	"Unbewohnte/ACASbot/internal/similarity"
 	"context"
 	"fmt"
-	"log"
+	"math"
 	"regexp"
 	"strings"
 	"time"
@@ -29,14 +30,14 @@ import (
 	ollama "github.com/ollama/ollama/api"
 )
 
-type Inference struct {
+type Client struct {
 	ModelName      string
 	Client         *ollama.Client
 	TimeoutSeconds uint
 }
 
-func NewInference(ollamaModel string, timeoutSeconds uint) (*Inference, error) {
-	inference := &Inference{
+func NewClient(ollamaModel string, timeoutSeconds uint) (*Client, error) {
+	inference := &Client{
 		ModelName:      ollamaModel,
 		TimeoutSeconds: timeoutSeconds,
 	}
@@ -47,61 +48,10 @@ func NewInference(ollamaModel string, timeoutSeconds uint) (*Inference, error) {
 	}
 	inference.Client = client
 
-	if err := inference.CheckModel(); err != nil {
-		return nil, err
-	}
-
 	return inference, nil
 }
 
-func (i *Inference) CheckModel() error {
-	ctx, cancel := context.WithTimeout(
-		context.Background(),
-		time.Duration(i.TimeoutSeconds)*time.Second,
-	)
-	defer cancel()
-
-	modelsResp, err := i.Client.List(ctx)
-	if err != nil {
-		return fmt.Errorf("ошибка при запросе списка моделей: %w", err)
-	}
-
-	modelFound := false
-	for _, model := range modelsResp.Models {
-		if model.Name == i.ModelName {
-			modelFound = true
-			break
-		}
-	}
-
-	if !modelFound {
-		return fmt.Errorf("модель '%s' не найдена в Ollama", i.ModelName)
-	}
-
-	testCtx, testCancel := context.WithTimeout(
-		context.Background(), time.Duration(i.TimeoutSeconds)*time.Second,
-	)
-	defer testCancel()
-
-	testPrompt := "Ответь одним словом: работаешь?"
-	var response strings.Builder
-	err = i.Client.Generate(testCtx, &ollama.GenerateRequest{
-		Model:  i.ModelName,
-		Prompt: testPrompt,
-	}, func(res ollama.GenerateResponse) error {
-		response.WriteString(res.Response)
-		return nil
-	})
-
-	if err != nil {
-		return fmt.Errorf("тестовый запрос к модели не удался: %w", err)
-	}
-
-	log.Printf("Проверка Ollama: модель %s готова к работе (тестовый ответ: %s)", i.ModelName, removeThinkBlock(response.String()))
-	return nil
-}
-
-func (i *Inference) ListModels() ([]ollama.ListModelResponse, error) {
+func (i *Client) ListModels() ([]ollama.ListModelResponse, error) {
 	response, err := i.Client.List(context.Background())
 	if err != nil {
 		return nil, err
@@ -110,16 +60,16 @@ func (i *Inference) ListModels() ([]ollama.ListModelResponse, error) {
 	return response.Models, nil
 }
 
-func (i *Inference) Query(prompt string) (string, error) {
+func (c *Client) Query(prompt string) (string, error) {
 	ctx, cancel := context.WithTimeout(
 		context.Background(),
-		time.Duration(i.TimeoutSeconds)*time.Second,
+		time.Duration(c.TimeoutSeconds)*time.Second,
 	)
 	defer cancel()
 
 	var response strings.Builder
-	err := i.Client.Generate(ctx, &ollama.GenerateRequest{
-		Model:  i.ModelName,
+	err := c.Client.Generate(ctx, &ollama.GenerateRequest{
+		Model:  c.ModelName,
 		Prompt: prompt,
 		Options: map[string]interface{}{
 			"temperature": 0.2, // Для более детерминированного вывода
@@ -134,6 +84,55 @@ func (i *Inference) Query(prompt string) (string, error) {
 	}
 
 	return removeThinkBlock(response.String()), nil
+}
+
+func (c *Client) GetEmbedding(text string) ([]float64, error) {
+	if len([]rune(text)) < 50 {
+		return nil, fmt.Errorf("text too short for meaningful embedding")
+	}
+
+	// Add context for better semantic understanding
+	contextualized := fmt.Sprintf("новостная статья: %s", text)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(c.TimeoutSeconds)*time.Second)
+	defer cancel()
+
+	req := &ollama.EmbeddingRequest{
+		Model:  c.ModelName,
+		Prompt: contextualized,
+	}
+
+	resp, err := c.Client.Embeddings(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("embedding request failed: %w", err)
+	}
+
+	if len(resp.Embedding) == 0 {
+		return nil, fmt.Errorf("empty embedding returned")
+	}
+
+	// Make a copy of the embedding slice
+	embedding := make([]float64, len(resp.Embedding))
+	copy(embedding, resp.Embedding)
+
+	// Debug: Check normalization
+	var sum float64
+	for _, v := range embedding {
+		sum += v * v
+	}
+	magnitude := math.Sqrt(sum)
+	fmt.Printf("Embedding magnitude before normalization: %f\n", magnitude)
+
+	similarity.NormalizeVector(embedding)
+
+	sum = 0
+	for _, v := range embedding {
+		sum += v * v
+	}
+	magnitude = math.Sqrt(sum)
+	fmt.Printf("Embedding magnitude after normalization: %f\n", magnitude)
+
+	return embedding, nil
 }
 
 func removeThinkBlock(input string) string {

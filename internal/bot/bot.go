@@ -1,28 +1,28 @@
 package bot
 
 import (
-	"Unbewohnte/ACASbot/conf"
-	"Unbewohnte/ACASbot/inference"
-	"Unbewohnte/ACASbot/spreadsheet"
+	"Unbewohnte/ACASbot/internal/inference"
+	"Unbewohnte/ACASbot/internal/spreadsheet"
 	"context"
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
 type Bot struct {
 	api      *tgbotapi.BotAPI
-	conf     *conf.Config
-	model    *inference.Inference
+	conf     *Config
+	model    *inference.Client
 	commands []Command
 	sheet    *spreadsheet.GoogleSheetsClient
 }
 
-func NewBot(config *conf.Config) (*Bot, error) {
-	model, err := inference.NewInference(
-		config.Ollama.Model,
+func NewBot(config *Config) (*Bot, error) {
+	model, err := inference.NewClient(
+		config.Ollama.GeneralModel,
 		config.Ollama.QueryTimeoutSeconds,
 	)
 	if err != nil {
@@ -42,6 +42,11 @@ func NewBot(config *conf.Config) (*Bot, error) {
 }
 
 func (bot *Bot) Init() {
+	_, err := bot.conf.OpenDB()
+	if err != nil {
+		log.Panic(err)
+	}
+
 	bot.NewCommand(Command{
 		Name:        "help",
 		Description: "Напечатать вспомогательное сообщение",
@@ -58,18 +63,18 @@ func (bot *Bot) Init() {
 	})
 
 	bot.NewCommand(Command{
-		Name:        "toggleanalysis",
-		Description: "Включить или выключить полный анализ статей",
-		Group:       "Анализ",
-		Call:        bot.ToggleAnalysis,
-	})
-
-	bot.NewCommand(Command{
 		Name:        "do",
 		Description: "Анализировать статью",
 		Example:     "do https://example.com/article2",
 		Group:       "Анализ",
 		Call:        bot.Do,
+	})
+
+	bot.NewCommand(Command{
+		Name:        "toggleSaveSimilar",
+		Description: "Не сохранять|Сохранять похожие статьи",
+		Group:       "Анализ",
+		Call:        bot.ToggleSaveSimilar,
 	})
 
 	bot.NewCommand(Command{
@@ -174,33 +179,18 @@ func (bot *Bot) Init() {
 	})
 
 	bot.NewCommand(Command{
-		Name:        "setpromptse",
+		Name:        "setpromptsent",
 		Description: "Изменить промпт выявления отношения к объекту",
-		Example:     "setpromptse Определи отношение к {{OBJECT}} в следующем тексте. Текст: {{TEXT}}",
+		Example:     "setpromptses Определи отношение к {{OBJECT}} в следующем тексте. Ответь одним предложением. Текст: {{TEXT}}",
 		Group:       "LLM",
 		Call:        bot.SetSentimentPrompt,
 	})
 
 	bot.NewCommand(Command{
-		Name:        "setpromptses",
-		Description: "Изменить короткий промпт выявления отношения к объекту",
-		Example:     "setpromptses Определи отношение к {{OBJECT}} в следующем тексте. Ответь одним предложением. Текст: {{TEXT}}",
-		Group:       "LLM",
-		Call:        bot.SetSentimentShortPrompt,
-	})
-
-	bot.NewCommand(Command{
-		Name:        "getlocalsheet",
-		Description: "Запросить файл локальной таблицы с результатами анализов",
+		Name:        "xlsx",
+		Description: "Сгенерировать файл XLSX таблицы с результатами анализов",
 		Group:       "Таблицы",
-		Call:        bot.GetLocalSpreadsheet,
-	})
-
-	bot.NewCommand(Command{
-		Name:        "clearlocalsheet",
-		Description: "Удалить файл локальной таблицы с результатами анализов",
-		Group:       "Таблицы",
-		Call:        bot.ClearLocalSpreadsheet,
+		Call:        bot.GenerateSpreadsheet,
 	})
 
 	bot.NewCommand(Command{
@@ -236,71 +226,79 @@ func (bot *Bot) Start() error {
 
 	log.Printf("Бот авторизован как %s", bot.api.Self.UserName)
 
-	u := tgbotapi.NewUpdate(0)
-	u.Timeout = 60
-	updates := bot.api.GetUpdatesChan(u)
+	retryDelay := 5 * time.Second
+	for {
+		u := tgbotapi.NewUpdate(0)
+		u.Timeout = 60
+		updates := bot.api.GetUpdatesChan(u)
 
-loop:
-	for update := range updates {
-		if update.Message == nil {
-			continue
-		}
-
-		log.Printf("[%s] %s", update.Message.From.UserName, update.Message.Text)
-
-		// Проверка на возможность дальнейшего общения с данным пользователем
-		if !bot.conf.Telegram.Public {
-			var allowed bool = false
-			for _, allowedID := range bot.conf.Telegram.AllowedUserIDs {
-				if update.Message.From.ID == allowedID {
-					allowed = true
-					break
-				}
-			}
-
-			if !allowed {
-				// Не пропускаем дальше
-				msg := tgbotapi.NewMessage(
-					update.Message.Chat.ID,
-					"Вам не разрешено пользоваться этим ботом!",
-				)
-				bot.api.Send(msg)
-
-				if bot.conf.Debug {
-					log.Printf("Не допустили к общению пользователя %v", update.Message.From.ID)
-				}
-
+		for update := range updates {
+			if update.Message == nil {
 				continue
 			}
+
+			go func(message *tgbotapi.Message) {
+				log.Printf("[%s] %s", message.From.UserName, message.Text)
+
+				// Проверка на возможность дальнейшего общения с данным пользователем
+				if !bot.conf.Telegram.Public {
+					var allowed bool = false
+					for _, allowedID := range bot.conf.Telegram.AllowedUserIDs {
+						if message.From.ID == allowedID {
+							allowed = true
+							break
+						}
+					}
+
+					if !allowed {
+						// Не пропускаем дальше
+						msg := tgbotapi.NewMessage(
+							message.Chat.ID,
+							"Вам не разрешено пользоваться этим ботом!",
+						)
+						bot.api.Send(msg)
+
+						if bot.conf.Debug {
+							log.Printf("Не допустили к общению пользователя %v", message.From.ID)
+						}
+
+						return
+					}
+				}
+
+				// Обработать команды
+				message.Text = strings.TrimSpace(message.Text)
+				for _, command := range bot.commands {
+					if strings.HasPrefix(strings.ToLower(message.Text), command.Name) {
+						go command.Call(message)
+						return // Дальше не продолжаем
+					}
+				}
+
+				// Проверим, URL ли это
+				if strings.HasPrefix(message.Text, "http") {
+					// Отправляем команде do
+					do := bot.CommandByName("do")
+					if do != nil {
+						message.Text = "do " + message.Text
+						do.Call(message)
+					}
+				} else {
+					// Неверно введенная команда
+					bot.sendCommandSuggestions(
+						message.Chat.ID,
+						strings.ToLower(message.Text),
+					)
+				}
+			}(update.Message)
 		}
 
-		// Обработать команды
-		update.Message.Text = strings.TrimSpace(update.Message.Text)
-		for _, command := range bot.commands {
-			if strings.HasPrefix(strings.ToLower(update.Message.Text), command.Name) {
-				go command.Call(update.Message)
-				goto loop // Дальше не продолжаем
-			}
-		}
-
-		// Проверим, URL ли это
-		if strings.HasPrefix(update.Message.Text, "http") {
-			// Отправляем команде do
-			do := bot.CommandByName("do")
-			if do != nil {
-				update.Message.Text = "do " + update.Message.Text
-				go do.Call(update.Message)
-			}
-		} else {
-			// Неверно введенная команда
-			bot.sendCommandSuggestions(
-				update.Message.Chat.ID,
-				strings.ToLower(update.Message.Text),
-			)
+		log.Println("Соединение с Telegram потеряно. Переподключение...")
+		time.Sleep(retryDelay)
+		if retryDelay < 300*time.Second {
+			retryDelay *= 2
 		}
 	}
-
-	return nil
 }
 
 func (bot *Bot) sendCommandSuggestions(chatID int64, input string) {

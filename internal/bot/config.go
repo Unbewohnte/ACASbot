@@ -16,10 +16,11 @@
    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package conf
+package bot
 
 import (
-	"Unbewohnte/ACASbot/spreadsheet"
+	"Unbewohnte/ACASbot/internal/db"
+	"Unbewohnte/ACASbot/internal/spreadsheet"
 	"encoding/json"
 	"errors"
 	"io"
@@ -29,16 +30,16 @@ import (
 var CONFIG_PATH string = ""
 
 type Prompts struct {
-	Affiliation    string `json:"affiliation"`
-	SentimentShort string `json:"sentiment_short"`
-	SentimentLong  string `json:"sentiment_long"`
-	Title          string `json:"title"`
+	Affiliation string `json:"affiliation"`
+	Sentiment   string `json:"sentiment"`
+	Title       string `json:"title"`
 }
 
 type OllamaConf struct {
-	Model               string  `json:"model"`
+	GeneralModel        string  `json:"general_model"`
 	QueryTimeoutSeconds uint    `json:"query_timeout_seconds"`
 	Prompts             Prompts `json:"prompts"`
+	EmbeddingModel      string  `json:"embedding_model"`
 }
 
 type TelegramConf struct {
@@ -52,29 +53,47 @@ type GoogleSheetsConf struct {
 	CredentialsFile string             `json:"credentials_file"`
 }
 
-type LocalSheetConf struct {
-	Filename string `json:"file"`
-}
-
 type Sheets struct {
 	PushToGoogleSheet bool             `json:"push_to_google_sheet"`
-	SaveSheetLocally  bool             `json:"save_sheet_locally"`
 	Google            GoogleSheetsConf `json:"google"`
-	Local             LocalSheetConf   `json:"local"`
+}
+
+type DBConf struct {
+	File string `json:"file"`
+	db   *db.DB
+}
+
+type AnalysisConf struct {
+	Object              string `json:"object"`
+	ObjectMetadata      string `json:"object_metadata"`
+	MaxContentSize      uint   `json:"max_content_size"`
+	SaveSimilarArticles bool   `json:"save_similar_articles"`
 }
 
 type Config struct {
-	Telegram       TelegramConf `json:"telegram"`
-	Ollama         OllamaConf   `json:"ollama"`
-	Sheets         Sheets       `json:"sheets"`
-	FullAnalysis   bool         `json:"full_analysis"`
-	Object         string       `json:"object"`
-	ObjectMetadata string       `json:"object_metadata"`
-	MaxContentSize uint         `json:"max_content_size"`
-	Debug          bool         `json:"debug"`
+	Telegram TelegramConf `json:"telegram"`
+	Ollama   OllamaConf   `json:"ollama"`
+	Sheets   Sheets       `json:"sheets"`
+	Analysis AnalysisConf `json:"analysis"`
+	Debug    bool         `json:"debug"`
+	DB       DBConf       `json:"database"`
 }
 
-func Default() *Config {
+func (c *Config) OpenDB() (*db.DB, error) {
+	var err error
+	c.DB.db, err = db.NewDB(c.DB.File)
+	if err != nil {
+		return nil, err
+	}
+
+	return c.DB.db, nil
+}
+
+func (c *Config) GetDB() *db.DB {
+	return c.DB.db
+}
+
+func DefaultConfig() *Config {
 	return &Config{
 		Telegram: TelegramConf{
 			ApiToken:       "tg_api_token",
@@ -82,17 +101,16 @@ func Default() *Config {
 			AllowedUserIDs: []int64{},
 		},
 		Ollama: OllamaConf{
-			Model:               "bambucha/saiga-llama3:latest",
-			QueryTimeoutSeconds: 300,
+			GeneralModel:        "bambucha/saiga-llama3:latest",
+			QueryTimeoutSeconds: 600,
 			Prompts: Prompts{
-				Title:          "Извлеки основной заголовок статьи из следующего текста. Ответ должен содержать только заголовок без дополнительных комментариев.\n\nТекст:\n{{TEXT}}",
-				Affiliation:    "Опиши одним предложением, какая информация в тексте имеет отношение к \"{{OBJECT}}\". Если не имеет, ответь только \"Связи нет\"\n\nТекст:\n{{TEXT}}",
-				SentimentShort: "Определи отношение к \"{{OBJECT}}\" в следующем тексте. Варианты: положительный, информационный, отрицательный. Отвечай одним словом. В случае, если нет конкретного отношения, отвечай \"информационный\".\n\nТекст: \n{{TEXT}}",
-				SentimentLong:  "Определи отношение к \"{{OBJECT}}\" в тексте. Варианты: положительный, информационный, отрицательный. В случае, если нет конкретного отношения, отвечай \"информационный\". Обоснуй ответ только одним предложением. Формат ответа:\n[отношение одним словом]\nОбоснование: [твое объяснение]\n\nТекст:\n{{TEXT}}",
+				Title:       "Извлеки основной заголовок статьи из следующего текста. Ответ должен содержать только заголовок без дополнительных комментариев.\n\nТекст:\n{{TEXT}}",
+				Affiliation: "Опиши одним предложением, какая информация в тексте имеет отношение к \"{{OBJECT}}\". Если не имеет, ответь только \"Связи нет\"\n\nТекст:\n{{TEXT}}",
+				Sentiment:   "Определи отношение к \"{{OBJECT}}\" в тексте. Варианты: положительный, информационный, отрицательный. Обоснуй ответ только одним предложением. Формат ответа:\n[отношение одним словом]\nОбоснование: [твое объяснение]\n\nТекст:\n{{TEXT}}",
 			},
+			EmbeddingModel: "bge-m3:latest",
 		},
 		Sheets: Sheets{
-			SaveSheetLocally:  true,
 			PushToGoogleSheet: true,
 			Google: GoogleSheetsConf{
 				CredentialsFile: "secret.json",
@@ -100,15 +118,17 @@ func Default() *Config {
 					nil, "spreadsheet_id", "Sheet 1",
 				),
 			},
-			Local: LocalSheetConf{
-				Filename: "RESULTS_ACASbot.xlsx",
-			},
 		},
-		Object:         "Жители района, район",
-		ObjectMetadata: "",
-		MaxContentSize: 3500,
-		Debug:          false,
-		FullAnalysis:   false,
+		Analysis: AnalysisConf{
+			Object:              "Жители, люди",
+			ObjectMetadata:      "",
+			MaxContentSize:      8000,
+			SaveSimilarArticles: true,
+		},
+		DB: DBConf{
+			File: "ACASBOT.sqlite3",
+		},
+		Debug: false,
 	}
 }
 
@@ -136,7 +156,7 @@ func (conf *Config) Save(filepath string) error {
 	return err
 }
 
-func From(filepath string) (*Config, error) {
+func ConfigFrom(filepath string) (*Config, error) {
 	file, err := os.Open(filepath)
 	if err != nil {
 		return nil, err

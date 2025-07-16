@@ -19,6 +19,7 @@
 package bot
 
 import (
+	"Unbewohnte/ACASbot/internal/article"
 	"compress/flate"
 	"compress/gzip"
 	"context"
@@ -61,7 +62,7 @@ type ArticleAnalysis struct {
 	Errors         []error
 }
 
-func (bot *Bot) ExtractWebContent(articleURL string) (ArticleContent, error) {
+func (bot *Bot) ExtractWebContent(articleURL string) (*article.Article, error) {
 	var htmlData []byte
 	var err error
 
@@ -72,7 +73,7 @@ func (bot *Bot) ExtractWebContent(articleURL string) (ArticleContent, error) {
 		htmlData, err = bot.extractWithoutHeadless(articleURL)
 		if err != nil {
 			log.Printf("Не получилось получить данные при помощи обычного запроса: %s", err)
-			return ArticleContent{}, err
+			return nil, err
 		}
 	}
 
@@ -89,7 +90,7 @@ func (bot *Bot) ExtractWebContent(articleURL string) (ArticleContent, error) {
 
 	doc, err := trafilatura.Extract(strings.NewReader(html), parseOpts)
 	if err != nil {
-		return ArticleContent{}, fmt.Errorf("ошибка извлечения контента: %w", err)
+		return nil, fmt.Errorf("ошибка извлечения контента: %w", err)
 	}
 
 	if doc != nil && doc.ContentText != "" {
@@ -98,18 +99,18 @@ func (bot *Bot) ExtractWebContent(articleURL string) (ArticleContent, error) {
 			pubTime = &doc.Metadata.Date
 		}
 
-		return ArticleContent{
-			Title:   doc.Metadata.Title,
-			Content: doc.ContentText,
-			Success: true,
-			PubDate: pubTime,
+		return &article.Article{
+			Title:       doc.Metadata.Title,
+			Content:     doc.ContentText,
+			PublishedAt: pubTime.Unix(),
+			SourceURL:   articleURL,
 		}, nil
 	}
 
 	// Пробуем кастомный парсер
 	queryDoc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
 	if err != nil {
-		return ArticleContent{}, fmt.Errorf("ошибка парсинга HTML: %w", err)
+		return nil, fmt.Errorf("ошибка парсинга HTML: %w", err)
 	}
 
 	return bot.extractCustomContent(queryDoc)
@@ -312,28 +313,27 @@ func (bot *Bot) setAdvancedHeaders(req *http.Request) {
 	}
 }
 
-func (bot *Bot) extractCustomContent(doc *goquery.Document) (ArticleContent, error) {
+func (bot *Bot) extractCustomContent(doc *goquery.Document) (*article.Article, error) {
 	// Сначала пробуем структурированный подход
-	if content := bot.extractStructuredContent(doc); content.Success {
+	if content := bot.extractStructuredContent(doc); content != nil {
 		return content, nil
 	}
 
 	// Затем fallback-метод
 	content, err := bot.extractFallbackContent(doc)
 	if err != nil {
-		return ArticleContent{}, err
+		return nil, err
 	}
 
-	return ArticleContent{
+	return &article.Article{
 		Content: content,
-		Success: false,
 	}, nil
 }
 
-func (bot *Bot) extractStructuredContent(doc *goquery.Document) ArticleContent {
+func (bot *Bot) extractStructuredContent(doc *goquery.Document) *article.Article {
 	articleSelection := doc.Find("article, main, .article, .post, .content")
 	if articleSelection.Length() == 0 {
-		return ArticleContent{Success: false}
+		return nil
 	}
 
 	var title string
@@ -346,14 +346,13 @@ func (bot *Bot) extractStructuredContent(doc *goquery.Document) ArticleContent {
 	content := strings.TrimSpace(articleSelection.Text())
 	content = strings.Join(strings.Fields(content), " ")
 
-	if len(content) < 100 || uint(len(content)) > bot.conf.MaxContentSize {
-		return ArticleContent{Success: false}
+	if len(content) < 100 || uint(len(content)) > bot.conf.Analysis.MaxContentSize {
+		return nil
 	}
 
-	return ArticleContent{
+	return &article.Article{
 		Title:   title,
 		Content: content,
-		Success: true,
 	}
 }
 
@@ -438,36 +437,26 @@ type QueryResult struct {
 	Content string
 }
 
-func (bot *Bot) analyzeArticle(url string) (*ArticleAnalysis, error) {
-	articleContent, err := bot.ExtractWebContent(url)
+func (bot *Bot) analyzeArticle(url string) (*article.Article, error) {
+	art, err := bot.ExtractWebContent(url)
 	if err != nil {
 		return nil, err
 	}
 
-	articleContent.Content = cleanContent(articleContent.Content)
-
-	result := &ArticleAnalysis{
-		URL:     url,
-		Content: articleContent,
-	}
+	art.Content = cleanContent(art.Content)
 
 	if bot.conf.Debug {
-		status := "структурированный"
-		if !result.Content.Success {
-			status = "фолбэк"
-		}
-		log.Printf("Использован %s метод. Заголовок: %s; Содержимое: %s",
-			status,
-			result.Content.Title,
-			result.Content.Content,
+		log.Printf("Заголовок: %s;\n Содержимое: %s",
+			art.Title,
+			art.Content,
 		)
 	}
 
 	// Ограничение размера контента
-	if uint(len([]rune(result.Content.Content))) > bot.conf.MaxContentSize {
-		result.Content.Content = string([]rune(result.Content.Content)[:bot.conf.MaxContentSize])
+	if uint(len([]rune(art.Content))) > bot.conf.Analysis.MaxContentSize {
+		art.Content = string([]rune(art.Content)[:bot.conf.Analysis.MaxContentSize])
 		if bot.conf.Debug {
-			log.Printf("Урезано до: %s\n", result.Content.Content)
+			log.Printf("Урезано до: %s\n", art.Content)
 		}
 	}
 
@@ -482,12 +471,12 @@ func (bot *Bot) analyzeArticle(url string) (*ArticleAnalysis, error) {
 		QuerySentiment   = "sentiment"
 	)
 
-	needTitle := !result.Content.Success || result.Content.Title == ""
+	needTitle := art.Title == ""
 	if needTitle {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			response, err := bot.queryTitle(result.Content.Content)
+			response, err := bot.queryTitle(art.Content)
 			if err != nil {
 				errors <- fmt.Errorf("заголовок: %w", err)
 				return
@@ -496,38 +485,25 @@ func (bot *Bot) analyzeArticle(url string) (*ArticleAnalysis, error) {
 		}()
 	}
 
-	if bot.conf.FullAnalysis {
-		wg.Add(2)
-		go func() {
-			defer wg.Done()
-			response, err := bot.queryAffiliation(result.Content.Content)
-			if err != nil {
-				errors <- fmt.Errorf("тема: %w", err)
-				return
-			}
-			results <- QueryResult{Type: QueryAffiliation, Content: response}
-		}()
-		go func() {
-			defer wg.Done()
-			response, err := bot.querySentiment(result.Content.Content, false)
-			if err != nil {
-				errors <- fmt.Errorf("отношение: %w", err)
-				return
-			}
-			results <- QueryResult{Type: QuerySentiment, Content: response}
-		}()
-	} else {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			response, err := bot.querySentiment(result.Content.Content, true)
-			if err != nil {
-				errors <- fmt.Errorf("отношение: %w", err)
-				return
-			}
-			results <- QueryResult{Type: QuerySentiment, Content: extractSentiment(response)}
-		}()
-	}
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		response, err := bot.queryAffiliation(art.Content)
+		if err != nil {
+			errors <- fmt.Errorf("тема: %w", err)
+			return
+		}
+		results <- QueryResult{Type: QueryAffiliation, Content: response}
+	}()
+	go func() {
+		defer wg.Done()
+		response, err := bot.querySentiment(art.Content)
+		if err != nil {
+			errors <- fmt.Errorf("отношение: %w", err)
+			return
+		}
+		results <- QueryResult{Type: QuerySentiment, Content: response}
+	}()
 
 	// Обработка результатов
 	go func() {
@@ -540,25 +516,25 @@ func (bot *Bot) analyzeArticle(url string) (*ArticleAnalysis, error) {
 	for res := range results {
 		switch res.Type {
 		case QueryTitle:
-			result.TitleFromModel = res.Content
+			art.Title = res.Content
 		case QueryAffiliation:
-			result.Affiliation = res.Content
+			art.Affiliation = res.Content
 		case QuerySentiment:
 			// Парсим структурированный ответ
 			parts := strings.SplitN(res.Content, "\n", 2)
 			if len(parts) > 0 {
-				result.Sentiment = extractSentiment(strings.TrimSpace(parts[0]))
+				art.Sentiment = extractSentiment(strings.TrimSpace(parts[0]))
 			}
 			if len(parts) > 1 {
-				result.Justification = strings.TrimSpace(parts[1])
+				art.Justification = strings.TrimSpace(parts[1])
 			}
 		}
 	}
 
 	// Собираем ошибки
 	for err := range errors {
-		result.Errors = append(result.Errors, err)
+		art.Errors = append(art.Errors, err)
 	}
 
-	return result, nil
+	return art, nil
 }
