@@ -75,29 +75,37 @@
 		"allowed_user_ids": []
 	},
 	"ollama": {
-		"model": "bambucha/saiga-llama3:latest",
-		"query_timeout_seconds": 300,
+		"general_model": "bambucha/saiga-llama3:latest",
+		"query_timeout_seconds": 600,
 		"prompts": {
-			"affiliation": "Опиши одним предложением, какая информация в тексте имеет отношение к \"{{ORGANIZATION}}\". Если не имеет, ответь только \"Связи нет\"\n\nТекст:\n{{TEXT}}",
-			"sentiment_short": "Определи отношение к \"{{ORGANIZATION}}\" в следующем тексте. Варианты: положительный, информационный, отрицательный. Отвечай одним словом. В случае, если нет конкретного отношения, отвечай \"информационный\".\n\nТекст: \n{{TEXT}}",
-			"sentiment_long": "Определи отношение к \"{{ORGANIZATION}}\" в тексте. Варианты: положительный, информационный, отрицательный. В случае, если нет конкретного отношения, отвечай \"информационный\". Обоснуй ответ только одним предложением. Формат ответа:\n[отношение одним словом]\nОбоснование: [твое объяснение]\n\nТекст:\n{{TEXT}}",
+			"affiliation": "Опиши одним предложением, какая информация в тексте имеет отношение к \"{{OBJECT}}\". Если не имеет, ответь только \"Связи нет\"\n\nТекст:\n{{TEXT}}",
+			"sentiment_short": "Определи отношение к \"{{OBJECT}}\" в следующем тексте. Варианты: положительный, информационный, отрицательный. Отвечай одним словом. В случае, если нет конкретного отношения, отвечай \"информационный\".\n\nТекст: \n{{TEXT}}",
+			"sentiment_long": "Определи отношение к \"{{OBJECT}}\" в тексте. Варианты: положительный, информационный, отрицательный. В случае, если нет конкретного отношения, отвечай \"информационный\". Обоснуй ответ только одним предложением. Формат ответа:\n[отношение одним словом]\nОбоснование: [твое объяснение]\n\nТекст:\n{{TEXT}}",
 			"title": "Извлеки основной заголовок статьи из следующего текста. Ответ должен содержать только заголовок без дополнительных комментариев.\n\nТекст:\n{{TEXT}}"
+		},
+		"embedding_model": "bge-m3:latest"
+	},
+	"sheets": {
+		"push_to_google_sheet": true,
+		"google": {
+			"config": {
+				"credentails": null,
+				"spreadsheet_id": "spreadsheet_id",
+				"sheet_name": "Sheet 1"
+			},
+			"credentials_file": "secret.json"
 		}
 	},
-	"push_to_google_sheet": true,
-	"sheets": {
-		"config": {
-			"credentails": null,
-			"spreadsheet_id": "spreadsheet_id",
-			"sheet_name": "Sheet 1"
-		},
-		"credentials_file": "secret.json"
+	"analysis": {
+		"object": "Люди, жители",
+		"object_metadata": "",
+		"max_content_size": 8000,
+		"save_similar_articles": true
 	},
-	"full_analysis": false,
-	"organization_name": "Жители района, район",
-	"organization_metadata": "",
-	"max_content_size": 3500,
-	"debug": false
+	"debug": false,
+	"database": {
+		"file": "ACASBOT.sqlite3"
+	}
 }
 ```
 
@@ -212,29 +220,37 @@ When you first run the bot, it will create a configuration file with default dat
 		"allowed_user_ids": []
 	},
 	"ollama": {
-		"model": "bambucha/saiga-llama3:latest",
-		"query_timeout_seconds": 300,
+		"general_model": "bambucha/saiga-llama3:latest",
+		"query_timeout_seconds": 600,
 		"prompts": {
-			"affiliation": "Опиши одним предложением, какая информация в тексте имеет отношение к \"{{ORGANIZATION}}\". Если не имеет, ответь только \"Связи нет\"\n\nТекст:\n{{TEXT}}",
-			"sentiment_short": "Определи отношение к \"{{ORGANIZATION}}\" в следующем тексте. Варианты: положительный, информационный, отрицательный. Отвечай одним словом. В случае, если нет конкретного отношения, отвечай \"информационный\".\n\nТекст: \n{{TEXT}}",
-			"sentiment_long": "Определи отношение к \"{{ORGANIZATION}}\" в тексте. Варианты: положительный, информационный, отрицательный. В случае, если нет конкретного отношения, отвечай \"информационный\". Обоснуй ответ только одним предложением. Формат ответа:\n[отношение одним словом]\nОбоснование: [твое объяснение]\n\nТекст:\n{{TEXT}}",
+			"affiliation": "Опиши одним предложением, какая информация в тексте имеет отношение к \"{{OBJECT}}\". Если не имеет, ответь только \"Связи нет\"\n\nТекст:\n{{TEXT}}",
+			"sentiment_short": "Определи отношение к \"{{OBJECT}}\" в следующем тексте. Варианты: положительный, информационный, отрицательный. Отвечай одним словом. В случае, если нет конкретного отношения, отвечай \"информационный\".\n\nТекст: \n{{TEXT}}",
+			"sentiment_long": "Определи отношение к \"{{OBJECT}}\" в тексте. Варианты: положительный, информационный, отрицательный. В случае, если нет конкретного отношения, отвечай \"информационный\". Обоснуй ответ только одним предложением. Формат ответа:\n[отношение одним словом]\nОбоснование: [твое объяснение]\n\nТекст:\n{{TEXT}}",
 			"title": "Извлеки основной заголовок статьи из следующего текста. Ответ должен содержать только заголовок без дополнительных комментариев.\n\nТекст:\n{{TEXT}}"
+		},
+		"embedding_model": "bge-m3:latest"
+	},
+	"sheets": {
+		"push_to_google_sheet": true,
+		"google": {
+			"config": {
+				"credentails": null,
+				"spreadsheet_id": "spreadsheet_id",
+				"sheet_name": "Sheet 1"
+			},
+			"credentials_file": "secret.json"
 		}
 	},
-	"push_to_google_sheet": true,
-	"sheets": {
-		"config": {
-			"credentails": null,
-			"spreadsheet_id": "spreadsheet_id",
-			"sheet_name": "Sheet 1"
-		},
-		"credentials_file": "secret.json"
+	"analysis": {
+		"object": "Люди, жители",
+		"object_metadata": "",
+		"max_content_size": 8000,
+		"save_similar_articles": true
 	},
-	"full_analysis": false,
-	"organization_name": "Жители района, район",
-	"organization_metadata": "",
-	"max_content_size": 3500,
-	"debug": false
+	"debug": false,
+	"database": {
+		"file": "ACASBOT.sqlite3"
+	}
 }
 ```
 
