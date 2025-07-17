@@ -41,6 +41,22 @@ func NewBot(config *Config) (*Bot, error) {
 	}, nil
 }
 
+func (bot *Bot) StartAutoSave(interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	go func() {
+		for {
+			select {
+			case <-ticker.C:
+				if err := bot.SaveLocalSpreadsheet(); err != nil {
+					log.Printf("Ошибка автосохранения: %v", err)
+				} else {
+					log.Printf("Автосохранение выполнено успешно")
+				}
+			}
+		}
+	}()
+}
+
 func (bot *Bot) Init() {
 	_, err := bot.conf.OpenDB()
 	if err != nil {
@@ -227,6 +243,9 @@ func (bot *Bot) Init() {
 
 		bot.sheet = sheetsClient
 	}
+
+	// Автоматически сохранять таблицу
+	bot.StartAutoSave(time.Hour * 1)
 }
 
 func (bot *Bot) Start() error {

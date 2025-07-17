@@ -6,6 +6,7 @@ import (
 	"Unbewohnte/ACASbot/internal/spreadsheet"
 	"fmt"
 	"log"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -1045,9 +1046,19 @@ func (bot *Bot) GenerateSpreadsheet(message *tgbotapi.Message) {
 		return
 	}
 
+	// Сохраняем как файл
+	fileName := "ACASbot_Results.xlsx"
+	realFile, err := os.Create(fileName)
+	if err != nil {
+		bot.sendError(message.Chat.ID, "Ошибка сохранения файла: "+err.Error(), message.MessageID)
+	} else {
+		defer realFile.Close()
+		realFile.Write(fileBuffer.Bytes())
+	}
+
 	// Отправляем файл как документ
 	file := tgbotapi.FileBytes{
-		Name:  "ACASbot_Results.xlsx",
+		Name:  fileName,
 		Bytes: fileBuffer.Bytes(),
 	}
 
@@ -1060,6 +1071,29 @@ func (bot *Bot) GenerateSpreadsheet(message *tgbotapi.Message) {
 		log.Printf("Ошибка отправки файла: %v", err)
 		bot.sendError(message.Chat.ID, "Не удалось отправить файл: "+err.Error(), message.MessageID)
 	}
+}
+
+func (bot *Bot) SaveLocalSpreadsheet() error {
+	articles, err := bot.conf.GetDB().GetAllArticles()
+	if err != nil {
+		return err
+	}
+
+	// Генерируем Excel в памяти
+	fileBuffer, err := spreadsheet.GenerateFromDatabase(articles)
+	if err != nil {
+		return err
+	}
+
+	// Сохраняем как файл
+	file, err := os.Create("ACASbot_Results.xlsx")
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	file.Write(fileBuffer.Bytes())
+
+	return nil
 }
 
 func (bot *Bot) FindSimilar(message *tgbotapi.Message) {
