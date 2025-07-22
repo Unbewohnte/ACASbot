@@ -32,13 +32,15 @@ import (
 
 type Client struct {
 	ModelName      string
+	EmbeddingModel string
 	Client         *ollama.Client
 	TimeoutSeconds uint
 }
 
-func NewClient(ollamaModel string, timeoutSeconds uint) (*Client, error) {
+func NewClient(ollamaModel string, embeddingModel string, timeoutSeconds uint) (*Client, error) {
 	inference := &Client{
 		ModelName:      ollamaModel,
+		EmbeddingModel: embeddingModel,
 		TimeoutSeconds: timeoutSeconds,
 	}
 
@@ -98,7 +100,7 @@ func (c *Client) GetEmbedding(text string) ([]float64, error) {
 	defer cancel()
 
 	req := &ollama.EmbeddingRequest{
-		Model:  c.ModelName,
+		Model:  c.EmbeddingModel,
 		Prompt: contextualized,
 	}
 

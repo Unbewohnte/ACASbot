@@ -23,6 +23,7 @@ type Bot struct {
 func NewBot(config *Config) (*Bot, error) {
 	model, err := inference.NewClient(
 		config.Ollama.GeneralModel,
+		config.Ollama.EmbeddingModel,
 		config.Ollama.QueryTimeoutSeconds,
 	)
 	if err != nil {
