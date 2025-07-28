@@ -351,7 +351,7 @@ func (db *DB) GetAllArticles() ([]article.Article, error) {
             created_at, published_at, citations, similar_urls, 
             affiliation, sentiment, justification
         FROM articles
-        ORDER BY created_at ASC
+        ORDER BY published_at ASC
     `)
 	if err != nil {
 		return nil, err
@@ -397,4 +397,17 @@ func (db *DB) GetAllArticles() ([]article.Article, error) {
 		articles = append(articles, a)
 	}
 	return articles, nil
+}
+
+func (db *DB) HasArticleByURL(url string) (bool, error) {
+	var count int
+	err := db.QueryRow(
+		"SELECT COUNT(*) FROM articles WHERE source_url = ?",
+		url,
+	).Scan(&count)
+
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }

@@ -233,6 +233,21 @@ func (bot *Bot) Init() {
 		Call:        bot.SetModel,
 	})
 
+	bot.NewCommand(Command{
+		Name:        "loadxlsx",
+		Description: "Загрузить статьи из XLSX файла (без анализа)",
+		Example:     "loadxlsx [прикрепите файл]",
+		Group:       "База данных",
+		Call:        bot.LoadXLSX,
+	})
+
+	bot.NewCommand(Command{
+		Name:        "getlogs",
+		Description: "Отправить файл логов",
+		Group:       "Общее",
+		Call:        bot.SendLogs,
+	})
+
 	if bot.conf.Sheets.PushToGoogleSheet {
 		sheetsClient, err := spreadsheet.NewGoogleSheetsClient(
 			context.Background(),
@@ -266,7 +281,7 @@ func (bot *Bot) Start() error {
 			}
 
 			go func(message *tgbotapi.Message) {
-				log.Printf("[%s] %s", message.From.UserName, message.Text)
+				log.Printf("[%s] %s (cap: %s)", message.From.UserName, message.Text, message.Caption)
 
 				// Проверка на возможность дальнейшего общения с данным пользователем
 				if !bot.conf.Telegram.Public {
@@ -296,6 +311,10 @@ func (bot *Bot) Start() error {
 
 				// Обработать команды
 				message.Text = strings.TrimSpace(message.Text)
+				if message.Text == "" {
+					message.Text = message.Caption
+				}
+
 				for _, command := range bot.commands {
 					if strings.HasPrefix(strings.ToLower(message.Text), command.Name) {
 						go command.Call(message)

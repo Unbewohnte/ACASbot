@@ -44,6 +44,12 @@ func init() {
 		os.Exit(0)
 	}
 
+	logsFile, err := os.Create(CONFIG.LogsFile)
+	if err != nil {
+		log.Panic("Не получилось создать файл логов: " + err.Error())
+	}
+	log.SetOutput(io.MultiWriter(logsFile, os.Stdout))
+
 	if CONFIG.Sheets.PushToGoogleSheet {
 		file, err := os.Open(CONFIG.Sheets.Google.CredentialsFile)
 		if err != nil {

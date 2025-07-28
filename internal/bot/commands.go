@@ -5,7 +5,9 @@ import (
 	"Unbewohnte/ACASbot/internal/similarity"
 	"Unbewohnte/ACASbot/internal/spreadsheet"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"sort"
 	"strconv"
@@ -13,6 +15,7 @@ import (
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/tealeg/xlsx"
 )
 
 type Command struct {
@@ -1193,5 +1196,217 @@ func (bot *Bot) FindSimilar(message *tgbotapi.Message) {
 		msg := tgbotapi.NewMessage(message.Chat.ID, "✅ Похожие статьи не найдены")
 		msg.ReplyToMessageID = message.MessageID
 		bot.api.Send(msg)
+	}
+}
+
+func parseExcelDate(cellValue string) (time.Time, error) {
+	// First try to parse as Excel serial number
+	if serial, err := strconv.Atoi(cellValue); err == nil {
+		// Excel date epoch is 1899-12-30 (note: not 31)
+		baseDate := time.Date(1899, 12, 30, 0, 0, 0, 0, time.UTC)
+		return baseDate.AddDate(0, 0, serial), nil
+	}
+
+	// Then try common date formats
+	formats := []string{
+		"02.01.2006", // dd.mm.yyyy
+		"02/01/2006", // dd/mm/yyyy
+		"2006-01-02", // yyyy-mm-dd
+		"01-02-2006", // mm-dd-yyyy (US format)
+	}
+
+	for _, format := range formats {
+		if t, err := time.Parse(format, cellValue); err == nil {
+			return t, nil
+		}
+	}
+
+	return time.Time{}, fmt.Errorf("unrecognized date format: %s", cellValue)
+}
+
+func (bot *Bot) LoadXLSX(message *tgbotapi.Message) {
+	// Проверяем, есть ли прикрепленный файл
+	if message.Document == nil {
+		msg := tgbotapi.NewMessage(message.Chat.ID, "Пожалуйста, прикрепите XLSX файл к команде")
+		bot.api.Send(msg)
+		return
+	}
+
+	// Проверяем расширение файла
+	if !strings.HasSuffix(message.Document.FileName, ".xlsx") {
+		msg := tgbotapi.NewMessage(message.Chat.ID, "Формат файла должен быть .xlsx")
+		bot.api.Send(msg)
+		return
+	}
+
+	// Скачиваем файл
+	fileURL, err := bot.api.GetFileDirectURL(message.Document.FileID)
+	if err != nil {
+		bot.sendError(message.Chat.ID, "Ошибка получения файла", message.MessageID)
+		return
+	}
+
+	// Индикатор загрузки
+	processingMsg := tgbotapi.NewMessage(message.Chat.ID, "📥 Загружаю файл...")
+	sentMsg, _ := bot.api.Send(processingMsg)
+
+	// Создаем временный файл
+	tmpFile, err := os.CreateTemp("", "acasbot-*.xlsx")
+	if err != nil {
+		bot.sendError(message.Chat.ID, "Ошибка создания временного файла", message.MessageID)
+		return
+	}
+	defer os.Remove(tmpFile.Name())
+	defer tmpFile.Close()
+
+	// Скачиваем содержимое
+	resp, err := http.Get(fileURL)
+	if err != nil {
+		log.Printf("Ошибка скачивания файла: %s", err)
+		bot.sendError(message.Chat.ID, "Ошибка скачивания файла", message.MessageID)
+		return
+	}
+	defer resp.Body.Close()
+
+	if _, err := io.Copy(tmpFile, resp.Body); err != nil {
+		log.Printf("Ошибка сохранения файла: %s", err)
+		bot.sendError(message.Chat.ID, "Ошибка сохранения файла", message.MessageID)
+		return
+	}
+
+	// Парсим XLSX
+	xlFile, err := xlsx.OpenFile(tmpFile.Name())
+	if err != nil {
+		log.Printf("Ошибка чтения файла: %s", err)
+		bot.sendError(message.Chat.ID, "Ошибка чтения XLSX файла", message.MessageID)
+		return
+	}
+
+	// Обрабатываем данные
+	successCount := 0
+	skipCount := 0
+	db := bot.conf.GetDB()
+
+	for _, sheet := range xlFile.Sheets {
+		for i, row := range sheet.Rows {
+			// Пропускаем заголовок
+			if i == 0 || len(row.Cells) == 0 {
+				continue
+			}
+
+			// Извлекаем данные из строки
+			cells := row.Cells
+			if len(cells) < 6 {
+				continue
+			}
+
+			title := strings.TrimSpace(cells[2].String())
+			sourceURL := strings.TrimSpace(cells[3].String())
+			if title == "" || sourceURL == "" {
+				skipCount++
+				continue
+			}
+
+			// Парсим дату публикации
+			pubDate, err := parseExcelDate(cells[0].String())
+			if err != nil {
+				pubDate = time.Now()
+			}
+
+			// Формируем статью
+			art := &article.Article{
+				PublishedAt: pubDate.Unix(),
+				Affiliation: cells[4].String(),
+				Sentiment:   cells[5].String(),
+				Title:       cells[2].String(),
+				SourceURL:   cells[3].String(),
+				CreatedAt:   time.Now().Unix(),
+				SimilarURLs: []string{},
+				Embedding:   []float64{},
+			}
+
+			// Проверяем дубликат по URL
+			exists, err := db.HasArticleByURL(art.SourceURL)
+			if err != nil || exists {
+				skipCount++
+				continue
+			}
+
+			// Сохраняем в БД
+			if err := db.SaveArticle(art); err != nil {
+				log.Printf("Ошибка сохранения в базу: %v", err)
+				skipCount++
+			} else {
+				successCount++
+			}
+		}
+	}
+
+	// Отправляем отчет
+	report := fmt.Sprintf(
+		"✅ Успешно загружено: %d статей\n🚫 Пропущено (дубликаты/ошибки): %d",
+		successCount, skipCount,
+	)
+	log.Printf("Загружено %d статей", successCount)
+
+	// Удаляем индикатор
+	deleteMsg := tgbotapi.NewDeleteMessage(message.Chat.ID, sentMsg.MessageID)
+	bot.api.Send(deleteMsg)
+
+	msg := tgbotapi.NewMessage(message.Chat.ID, report)
+	bot.api.Send(msg)
+}
+
+func (bot *Bot) SendLogs(message *tgbotapi.Message) {
+	// Check if log file exists
+	if _, err := os.Stat(bot.conf.LogsFile); os.IsNotExist(err) {
+		bot.sendError(message.Chat.ID, "Файл логов не найден", message.MessageID)
+		return
+	}
+
+	// Read log file
+	logFile, err := os.Open(bot.conf.LogsFile)
+	if err != nil {
+		bot.sendError(message.Chat.ID, "Ошибка чтения файла логов", message.MessageID)
+		log.Printf("Error opening log file: %v", err)
+		return
+	}
+	defer logFile.Close()
+
+	// Get file stats
+	fileInfo, err := logFile.Stat()
+	if err != nil {
+		bot.sendError(message.Chat.ID, "Ошибка получения информации о файле", message.MessageID)
+		log.Printf("Error getting file stats: %v", err)
+		return
+	}
+
+	if fileInfo.Size() > 50*1024*1024 {
+		bot.sendError(message.Chat.ID, "Файл логов слишком большой (максимум 50MB)", message.MessageID)
+		return
+	}
+
+	// Read file content
+	fileBytes, err := io.ReadAll(logFile)
+	if err != nil {
+		bot.sendError(message.Chat.ID, "Ошибка чтения содержимого файла", message.MessageID)
+		log.Printf("Error reading log file: %v", err)
+		return
+	}
+
+	// Create message with log file
+	file := tgbotapi.FileBytes{
+		Name:  "ACASbot_logs.txt",
+		Bytes: fileBytes,
+	}
+
+	msg := tgbotapi.NewDocument(message.Chat.ID, file)
+	msg.Caption = "📋 Логи бота"
+	msg.ReplyToMessageID = message.MessageID
+
+	// Send the file
+	if _, err := bot.api.Send(msg); err != nil {
+		bot.sendError(message.Chat.ID, "Ошибка отправки файла", message.MessageID)
+		log.Printf("Error sending log file: %v", err)
 	}
 }

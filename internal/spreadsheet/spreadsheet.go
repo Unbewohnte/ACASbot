@@ -79,7 +79,7 @@ func NewGoogleSheetsClient(ctx context.Context, conf Config) (*GoogleSheetsClien
 }
 
 func formatDate(date time.Time) string {
-	return fmt.Sprintf("%d/%d/%d", date.Day(), date.Month(), date.Year())
+	return fmt.Sprintf("%d.%d.%d", date.Day(), date.Month(), date.Year())
 }
 
 // AddAnalysisResult добавляет результат анализа в таблицу

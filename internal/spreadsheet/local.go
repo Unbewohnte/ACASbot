@@ -21,6 +21,7 @@ package spreadsheet
 import (
 	"Unbewohnte/ACASbot/internal/article"
 	"bytes"
+	"net/url"
 	"strings"
 	"time"
 
@@ -38,8 +39,8 @@ func GenerateFromDatabase(articles []article.Article) (*bytes.Buffer, error) {
 	// Добавляем заголовки
 	headerRow := sheet.AddRow()
 	headers := []string{
-		"Дата добавления", "Дата публикации", "Заголовок", "URL",
-		"Аффилиация", "Тональность", "Цитирований", "Похожие статьи",
+		"Дата добавления", "Дата публикации", "Ресурс", "Заголовок", "URL",
+		"Примечание", "Тональность", "Цитирований", "Похожие статьи",
 	}
 	for _, h := range headers {
 		cell := headerRow.AddCell()
@@ -53,16 +54,25 @@ func GenerateFromDatabase(articles []article.Article) (*bytes.Buffer, error) {
 		// Дата добавления
 		dateAdded := time.Unix(art.CreatedAt, 0)
 		cell := row.AddCell()
-		cell.SetDate(dateAdded)
+		cell.Value = formatDate(dateAdded)
 
 		// Дата публикации
 		if art.PublishedAt > 0 {
 			pubDate := time.Unix(art.PublishedAt, 0)
 			cell = row.AddCell()
-			cell.SetDate(pubDate)
+			cell.Value = formatDate(pubDate)
 		} else {
 			row.AddCell()
 		}
+
+		u, err := url.Parse(art.SourceURL)
+		if err != nil {
+			u = &url.URL{
+				Host: art.SourceURL,
+			}
+		}
+		cell = row.AddCell()
+		cell.Value = u.Hostname()
 
 		// Заголовок
 		cell = row.AddCell()

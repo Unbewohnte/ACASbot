@@ -77,6 +77,7 @@ type Config struct {
 	Analysis AnalysisConf `json:"analysis"`
 	Debug    bool         `json:"debug"`
 	DB       DBConf       `json:"database"`
+	LogsFile string       `json:"logs_file"`
 }
 
 func (c *Config) OpenDB() (*db.DB, error) {
@@ -128,7 +129,8 @@ func DefaultConfig() *Config {
 		DB: DBConf{
 			File: "ACASBOT.sqlite3",
 		},
-		Debug: false,
+		Debug:    false,
+		LogsFile: "logs.txt",
 	}
 }
 
