@@ -1373,7 +1373,6 @@ func (bot *Bot) LoadXLSX(message *tgbotapi.Message) {
 
 			// Парсим дату публикации
 			pubDate, err := parseExcelDate(cells[0].String())
-			log.Printf("Parsed date: %s", pubDate)
 			if err != nil {
 				log.Printf("Failed to parse date: %s", err)
 				pubDate = time.Now()
