@@ -264,12 +264,23 @@ func (bot *Bot) Do(message *tgbotapi.Message) {
 		}
 	}
 
-	if err := bot.saveNewArticle(art, embedding, url); err != nil {
-		bot.sendError(message.Chat.ID, "Ошибка сохранения", message.MessageID)
-		log.Printf("Ошибка сохранения: %s", err)
-		return
+	if len(verified) == 0 {
+		// Уникальная
+		if err := bot.saveNewArticle(art, embedding, url); err != nil {
+			bot.sendError(message.Chat.ID, "Ошибка сохранения", message.MessageID)
+			log.Printf("Ошибка сохранения: %s", err)
+			return
+		}
+	} else if len(verified) > 0 && bot.conf.Analysis.SaveSimilarArticles {
+		if err := bot.saveNewArticle(art, embedding, url); err != nil {
+			bot.sendError(message.Chat.ID, "Ошибка сохранения", message.MessageID)
+			log.Printf("Ошибка сохранения: %s", err)
+			return
+		}
+		bot.sendSuccess(message.Chat.ID, "Статья успешно добавлена в базу", message.MessageID)
+	} else {
+		bot.sendSuccess(message.Chat.ID, "Статья не добавлена в базу, так как сохранение похожих статей не разрешено", message.MessageID)
 	}
-	bot.sendSuccess(message.Chat.ID, "Статья успешно добавлена в базу", message.MessageID)
 
 	duplicatesText := bot.generateDuplicatesMessage(verified, *art)
 
@@ -814,15 +825,15 @@ func (bot *Bot) SetModel(message *tgbotapi.Message) {
 }
 
 func (bot *Bot) ToggleSaveSimilar(message *tgbotapi.Message) {
-	if bot.conf.Telegram.Public {
-		bot.conf.Telegram.Public = false
+	if bot.conf.Analysis.SaveSimilarArticles {
+		bot.conf.Analysis.SaveSimilarArticles = false
 		bot.api.Send(
-			tgbotapi.NewMessage(message.Chat.ID, "Доступ к боту теперь только у избранных."),
+			tgbotapi.NewMessage(message.Chat.ID, "Сохранение похожих статей запрещено."),
 		)
 	} else {
-		bot.conf.Telegram.Public = true
+		bot.conf.Analysis.SaveSimilarArticles = true
 		bot.api.Send(
-			tgbotapi.NewMessage(message.Chat.ID, "Доступ к боту теперь у всех."),
+			tgbotapi.NewMessage(message.Chat.ID, "Сохранение похожих статей разрешено."),
 		)
 	}
 
@@ -1198,27 +1209,80 @@ func (bot *Bot) FindSimilar(message *tgbotapi.Message) {
 		bot.api.Send(msg)
 	}
 }
-
 func parseExcelDate(cellValue string) (time.Time, error) {
-	// First try to parse as Excel serial number
+	// Удаляем лишние пробелы
+	cellValue = strings.TrimSpace(cellValue)
+
+	// 1. Пробуем распарсить как Excel serial number
 	if serial, err := strconv.Atoi(cellValue); err == nil {
 		// Excel date epoch is 1899-12-30 (note: not 31)
 		baseDate := time.Date(1899, 12, 30, 0, 0, 0, 0, time.UTC)
 		return baseDate.AddDate(0, 0, serial), nil
 	}
 
-	// Then try common date formats
+	// 2. Пробуем стандартные форматы с четырехзначным годом
 	formats := []string{
 		"02.01.2006", // dd.mm.yyyy
 		"02/01/2006", // dd/mm/yyyy
 		"2006-01-02", // yyyy-mm-dd
 		"01-02-2006", // mm-dd-yyyy (US format)
+		"01.02.2006", // mm.dd.yyyy
+		"02-01-2006", // dd-mm-yyyy
 	}
 
 	for _, format := range formats {
 		if t, err := time.Parse(format, cellValue); err == nil {
 			return t, nil
 		}
+	}
+
+	// 3. Пробуем форматы с двухзначным годом (корректируем год)
+	twoDigitYearFormats := []string{
+		"02.01.06", // dd.mm.yy
+		"02/01/06", // dd/mm/yy
+		"01-02-06", // mm-dd-yy
+		"01.02.06", // mm.dd.yy
+		"02-01-06", // dd-mm-yy
+	}
+
+	for _, format := range twoDigitYearFormats {
+		if t, err := time.Parse(format, cellValue); err == nil {
+			// Корректируем год (предполагаем 00-79 -> 2000-2079, 80-99 -> 1980-1999)
+			year := t.Year()
+			if year >= 100 { // Если year уже четырехзначный (может быть в некоторых парсерах)
+				return t, nil
+			}
+			if year >= 80 {
+				t = t.AddDate(1900, 0, 0)
+			} else {
+				t = t.AddDate(2000, 0, 0)
+			}
+			return t, nil
+		}
+	}
+
+	// 4. Пробуем разобрать вручную для форматов типа "07-23-25"
+	if parts := strings.Split(cellValue, "-"); len(parts) == 3 && len(parts[2]) == 2 {
+		monthStr := parts[0]
+		dayStr := parts[1]
+		yearStr := parts[2]
+
+		// Преобразуем двухзначный год
+		year, err := strconv.Atoi(yearStr)
+		if err != nil {
+			return time.Time{}, fmt.Errorf("invalid year: %s", yearStr)
+		}
+
+		// Корректируем год (00-79 -> 2000-2079, 80-99 -> 1980-1999)
+		if year >= 80 {
+			year += 1900
+		} else {
+			year += 2000
+		}
+
+		// Собираем полную дату и парсим
+		fullDate := fmt.Sprintf("%s-%s-%04d", monthStr, dayStr, year)
+		return time.Parse("01-02-2006", fullDate)
 	}
 
 	return time.Time{}, fmt.Errorf("unrecognized date format: %s", cellValue)
@@ -1309,7 +1373,9 @@ func (bot *Bot) LoadXLSX(message *tgbotapi.Message) {
 
 			// Парсим дату публикации
 			pubDate, err := parseExcelDate(cells[0].String())
+			log.Printf("Parsed date: %s", pubDate)
 			if err != nil {
+				log.Printf("Failed to parse date: %s", err)
 				pubDate = time.Now()
 			}
 
