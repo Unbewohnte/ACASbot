@@ -19,7 +19,7 @@
 package bot
 
 import (
-	"Unbewohnte/ACASbot/internal/article"
+	"Unbewohnte/ACASbot/internal/domain"
 	"Unbewohnte/ACASbot/internal/similarity"
 	"fmt"
 	"sort"
@@ -89,8 +89,8 @@ func (bot *Bot) findSimilarCommands(input string) []string {
 	return suggestions
 }
 
-func (bot *Bot) saveNewArticle(art *article.Article, embedding []float64, sourceURL string) error {
-	newArticle := &article.Article{
+func (bot *Bot) saveNewArticle(art *domain.Article, embedding []float64, sourceURL string) error {
+	newArticle := &domain.Article{
 		Content:       art.Content,
 		Title:         art.Title,
 		Embedding:     embedding,
@@ -107,7 +107,7 @@ func (bot *Bot) saveNewArticle(art *article.Article, embedding []float64, source
 	return bot.conf.GetDB().SaveArticle(newArticle)
 }
 
-func (bot *Bot) generateDuplicatesMessage(similar []article.Article, original article.Article) string {
+func (bot *Bot) generateDuplicatesMessage(similar []domain.Article, original domain.Article) string {
 	if len(similar) == 0 {
 		return ""
 	}
@@ -137,7 +137,7 @@ func (bot *Bot) sendSuccess(chatID int64, text string, replyTo int) {
 	bot.api.Send(msg)
 }
 
-func (bot *Bot) notifyExactDuplicate(message *tgbotapi.Message, existingArticle *article.Article) {
+func (bot *Bot) notifyExactDuplicate(message *tgbotapi.Message, existingArticle *domain.Article) {
 	msgText := fmt.Sprintf(`
 ❌ Точный дубликат уже существует!
 

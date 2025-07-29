@@ -18,12 +18,15 @@
 
 package db
 
+import "Unbewohnte/ACASbot/internal/domain"
+
 type UserConfig struct {
-	UserID                    int64   `db:"user_id"`
-	VectorSimilarityThreshold float64 `db:"vector_similarity_threshold"`
-	DaysLookback              uint    `db:"days_lookback"`
-	CompositeVectorWeight     float64 `db:"composite_vector_weight"`
-	FinalSimilarityThreshold  float64 `db:"final_similarity_threshold"`
+	UserID                    int64               `db:"user_id"`
+	VectorSimilarityThreshold float64             `db:"vector_similarity_threshold"`
+	DaysLookback              uint                `db:"days_lookback"`
+	CompositeVectorWeight     float64             `db:"composite_vector_weight"`
+	FinalSimilarityThreshold  float64             `db:"final_similarity_threshold"`
+	XLSXColumns               []domain.XLSXColumn `db:"xlsx_columns"`
 }
 
 func DefaultUserConfig(userID int64) *UserConfig {
@@ -33,5 +36,43 @@ func DefaultUserConfig(userID int64) *UserConfig {
 		DaysLookback:              7,
 		CompositeVectorWeight:     0.7,
 		FinalSimilarityThreshold:  0.65,
+		XLSXColumns: []domain.XLSXColumn{
+			{
+				Name:  "Дата добавления",
+				Field: "created_at",
+			},
+			{
+				Name:  "Дата публикации",
+				Field: "published_at",
+			},
+			{
+				Name:  "Ресурс",
+				Field: "source_url", // Вернёт hostname через специальную обработку
+			},
+			{
+				Name:  "Заголовок",
+				Field: "title",
+			},
+			{
+				Name:  "URL",
+				Field: "{{.SourceURL}}", // Прямая подстановка без обработки
+			},
+			{
+				Name:  "Примечание",
+				Field: "affiliation",
+			},
+			{
+				Name:  "Тональность",
+				Field: "sentiment",
+			},
+			{
+				Name:  "Цитирований",
+				Field: "citations",
+			},
+			{
+				Name:  "Похожие статьи",
+				Field: "similar_urls",
+			},
+		},
 	}
 }

@@ -248,6 +248,22 @@ func (bot *Bot) Init() {
 		Call:        bot.SendLogs,
 	})
 
+	bot.NewCommand(Command{
+		Name:        "setxlsxcolumns",
+		Description: "Установить конфигурацию колонок для XLSX-файла",
+		Example:     "setxlsxcolumns [{\"name\": \"Дата\", \"field\": \"published_at\"}, {\"name\": \"Заголовок\", \"llm_query\": \"Извлеки заголовок из текста: {{.Content}}\"}]",
+		Group:       "Таблицы",
+		Call:        bot.SetXLSXColumns,
+	})
+
+	bot.NewCommand(Command{
+		Name:        "showxlsxcolumns",
+		Description: "Показать текущую конфигурацию колонок для XLSX-файла",
+		Example:     "showxlsxcolumns",
+		Group:       "Таблицы",
+		Call:        bot.ShowXLSXColumns,
+	})
+
 	if bot.conf.Sheets.PushToGoogleSheet {
 		sheetsClient, err := spreadsheet.NewGoogleSheetsClient(
 			context.Background(),

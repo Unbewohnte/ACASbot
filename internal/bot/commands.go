@@ -1,9 +1,10 @@
 package bot
 
 import (
-	"Unbewohnte/ACASbot/internal/article"
+	"Unbewohnte/ACASbot/internal/domain"
 	"Unbewohnte/ACASbot/internal/similarity"
 	"Unbewohnte/ACASbot/internal/spreadsheet"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -120,7 +121,7 @@ func (bot *Bot) ChangeObj(message *tgbotapi.Message) {
 	bot.conf.Update()
 }
 
-func (bot *Bot) formatAnalysisResult(art *article.Article) string {
+func (bot *Bot) formatAnalysisResult(art *domain.Article) string {
 	var response strings.Builder
 
 	// Добавляем заголовок
@@ -160,6 +161,7 @@ func (bot *Bot) formatAnalysisResult(art *article.Article) string {
 
 	return response.String()
 }
+
 func (bot *Bot) Do(message *tgbotapi.Message) {
 	parts := strings.Split(message.Text, " ")
 	if len(parts) < 2 {
@@ -232,7 +234,7 @@ func (bot *Bot) Do(message *tgbotapi.Message) {
 		return
 	}
 
-	var verified []article.Article
+	var verified []domain.Article
 	if len(similar) > 0 {
 		composite := similarity.NewCompositeSimilarity(userConfig.CompositeVectorWeight)
 		for _, candidate := range similar {
@@ -486,6 +488,7 @@ func (bot *Bot) ChangeMaxContentSize(message *tgbotapi.Message) {
 func (bot *Bot) PrintConfig(message *tgbotapi.Message) {
 	userConfig, err := bot.conf.GetDB().GetUserConfig(message.From.ID)
 	if err != nil {
+		log.Printf("%s", err)
 		bot.sendError(message.Chat.ID, "Ошибка загрузки ваших настроек", message.MessageID)
 		return
 	}
@@ -1045,6 +1048,13 @@ func (bot *Bot) ForgetArticles(message *tgbotapi.Message) {
 }
 
 func (bot *Bot) GenerateSpreadsheet(message *tgbotapi.Message) {
+	// Получаем пользовательский конфиг
+	userConfig, err := bot.conf.GetDB().GetUserConfig(message.From.ID)
+	if err != nil {
+		bot.sendError(message.Chat.ID, "Ошибка загрузки ваших настроек", message.MessageID)
+		return
+	}
+
 	articles, err := bot.conf.GetDB().GetAllArticles()
 	if err != nil {
 		log.Printf("Не вышло получить все статьи из базы данных: %s", err)
@@ -1052,11 +1062,10 @@ func (bot *Bot) GenerateSpreadsheet(message *tgbotapi.Message) {
 		return
 	}
 
-	// Генерируем Excel в памяти
-	fileBuffer, err := spreadsheet.GenerateFromDatabase(articles)
+	// Генерируем с учетом пользовательских настроек
+	fileBuffer, err := spreadsheet.GenerateCustomXLSX(articles, userConfig.XLSXColumns, bot.model)
 	if err != nil {
-		log.Printf("Не получилось сгенерировать XLSX файл: %s", err)
-		bot.sendError(message.Chat.ID, "Ошибка генерации файла: "+err.Error(), message.MessageID)
+		bot.sendError(message.Chat.ID, "Ошибка генерации файла", message.MessageID)
 		return
 	}
 
@@ -1179,7 +1188,7 @@ func (bot *Bot) FindSimilar(message *tgbotapi.Message) {
 	var duplicatesText string
 	if len(similar) > 0 {
 		composite := similarity.NewCompositeSimilarity(userConfig.CompositeVectorWeight)
-		var verified []article.Article
+		var verified []domain.Article
 
 		for _, candidate := range similar {
 			score, err := composite.Compare(
@@ -1379,7 +1388,7 @@ func (bot *Bot) LoadXLSX(message *tgbotapi.Message) {
 			}
 
 			// Формируем статью
-			art := &article.Article{
+			art := &domain.Article{
 				PublishedAt: pubDate.Unix(),
 				Affiliation: cells[4].String(),
 				Sentiment:   cells[5].String(),
@@ -1474,4 +1483,48 @@ func (bot *Bot) SendLogs(message *tgbotapi.Message) {
 		bot.sendError(message.Chat.ID, "Ошибка отправки файла", message.MessageID)
 		log.Printf("Error sending log file: %v", err)
 	}
+}
+
+func (bot *Bot) SetXLSXColumns(message *tgbotapi.Message) {
+	parts := strings.SplitN(message.Text, " ", 2)
+	if len(parts) < 2 {
+		bot.sendError(message.Chat.ID, "Укажите JSON с настройкой колонок", message.MessageID)
+		return
+	}
+
+	userConfig, err := bot.conf.GetDB().GetUserConfig(message.From.ID)
+	if err != nil {
+		bot.sendError(message.Chat.ID, "Ошибка загрузки вашего конфига", message.MessageID)
+		return
+	}
+
+	var columns []domain.XLSXColumn
+	if err := json.Unmarshal([]byte(parts[1]), &columns); err != nil {
+		bot.sendError(message.Chat.ID, "Неверный формат JSON", message.MessageID)
+		return
+	}
+
+	userConfig.XLSXColumns = columns
+	if err := bot.conf.GetDB().SaveUserConfig(userConfig); err != nil {
+		bot.sendError(message.Chat.ID, "Ошибка сохранения конфига", message.MessageID)
+		return
+	}
+
+	bot.sendSuccess(message.Chat.ID, "Конфиг колонок XLSX обновлен", message.MessageID)
+}
+
+func (bot *Bot) ShowXLSXColumns(message *tgbotapi.Message) {
+	userConfig, err := bot.conf.GetDB().GetUserConfig(message.From.ID)
+	if err != nil {
+		bot.sendError(message.Chat.ID, "Ошибка загрузки вашего конфига", message.MessageID)
+		return
+	}
+
+	columnsJSON, _ := json.MarshalIndent(userConfig.XLSXColumns, "", "  ")
+	msg := tgbotapi.NewMessage(
+		message.Chat.ID,
+		"Текущие колонки XLSX:\n```json\n"+string(columnsJSON)+"\n```",
+	)
+	msg.ParseMode = "Markdown"
+	bot.api.Send(msg)
 }

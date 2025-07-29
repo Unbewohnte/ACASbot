@@ -19,7 +19,7 @@
 package spreadsheet
 
 import (
-	"Unbewohnte/ACASbot/internal/article"
+	"Unbewohnte/ACASbot/internal/domain"
 	"context"
 	"fmt"
 	"net/url"
@@ -83,7 +83,7 @@ func formatDate(date time.Time) string {
 }
 
 // AddAnalysisResult добавляет результат анализа в таблицу
-func (gsc *GoogleSheetsClient) AddAnalysisResult(art *article.Article) error {
+func (gsc *GoogleSheetsClient) AddAnalysisResult(art *domain.Article) error {
 	// Формируем строку для добавления
 	u, err := url.Parse(art.SourceURL)
 	if err != nil {
@@ -132,7 +132,7 @@ func (gsc *GoogleSheetsClient) AddAnalysisResult(art *article.Article) error {
 	return nil
 }
 
-func (gsc *GoogleSheetsClient) AddAnalysisResultWithRetry(art *article.Article, maxRetries int) error {
+func (gsc *GoogleSheetsClient) AddAnalysisResultWithRetry(art *domain.Article, maxRetries int) error {
 	var lastErr error
 	for i := 0; i < maxRetries; i++ {
 		if err := gsc.AddAnalysisResult(art); err == nil {
@@ -145,7 +145,7 @@ func (gsc *GoogleSheetsClient) AddAnalysisResultWithRetry(art *article.Article, 
 	return lastErr
 }
 
-func (gsc *GoogleSheetsClient) BatchAddResults(articles []*article.Article) error {
+func (gsc *GoogleSheetsClient) BatchAddResults(articles []*domain.Article) error {
 	var vr sheets.ValueRange
 	for _, art := range articles {
 		u, err := url.Parse(art.SourceURL)

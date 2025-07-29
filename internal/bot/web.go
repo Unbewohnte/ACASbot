@@ -19,7 +19,7 @@
 package bot
 
 import (
-	"Unbewohnte/ACASbot/internal/article"
+	"Unbewohnte/ACASbot/internal/domain"
 	"compress/flate"
 	"compress/gzip"
 	"context"
@@ -62,7 +62,7 @@ type ArticleAnalysis struct {
 	Errors         []error
 }
 
-func (bot *Bot) ExtractWebContent(articleURL string) (*article.Article, error) {
+func (bot *Bot) ExtractWebContent(articleURL string) (*domain.Article, error) {
 	var htmlData []byte
 	var err error
 
@@ -99,7 +99,7 @@ func (bot *Bot) ExtractWebContent(articleURL string) (*article.Article, error) {
 			pubTime = &doc.Metadata.Date
 		}
 
-		return &article.Article{
+		return &domain.Article{
 			Title:       doc.Metadata.Title,
 			Content:     doc.ContentText,
 			PublishedAt: pubTime.Unix(),
@@ -313,7 +313,7 @@ func (bot *Bot) setAdvancedHeaders(req *http.Request) {
 	}
 }
 
-func (bot *Bot) extractCustomContent(doc *goquery.Document) (*article.Article, error) {
+func (bot *Bot) extractCustomContent(doc *goquery.Document) (*domain.Article, error) {
 	// Сначала пробуем структурированный подход
 	if content := bot.extractStructuredContent(doc); content != nil {
 		return content, nil
@@ -325,12 +325,12 @@ func (bot *Bot) extractCustomContent(doc *goquery.Document) (*article.Article, e
 		return nil, err
 	}
 
-	return &article.Article{
+	return &domain.Article{
 		Content: content,
 	}, nil
 }
 
-func (bot *Bot) extractStructuredContent(doc *goquery.Document) *article.Article {
+func (bot *Bot) extractStructuredContent(doc *goquery.Document) *domain.Article {
 	articleSelection := doc.Find("article, main, .article, .post, .content")
 	if articleSelection.Length() == 0 {
 		return nil
@@ -350,7 +350,7 @@ func (bot *Bot) extractStructuredContent(doc *goquery.Document) *article.Article
 		return nil
 	}
 
-	return &article.Article{
+	return &domain.Article{
 		Title:   title,
 		Content: content,
 	}
@@ -437,7 +437,7 @@ type QueryResult struct {
 	Content string
 }
 
-func (bot *Bot) getArticle(url string) (*article.Article, error) {
+func (bot *Bot) getArticle(url string) (*domain.Article, error) {
 	art, err := bot.ExtractWebContent(url)
 	if err != nil {
 		return nil, err
@@ -463,7 +463,7 @@ func (bot *Bot) getArticle(url string) (*article.Article, error) {
 	return art, nil
 }
 
-func (bot *Bot) analyzeArticle(url string) (*article.Article, error) {
+func (bot *Bot) analyzeArticle(url string) (*domain.Article, error) {
 	art, err := bot.getArticle(url)
 	if err != nil {
 		return nil, err

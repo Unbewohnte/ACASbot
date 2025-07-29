@@ -19,7 +19,7 @@
 package db
 
 import (
-	"Unbewohnte/ACASbot/internal/article"
+	"Unbewohnte/ACASbot/internal/domain"
 	"Unbewohnte/ACASbot/internal/similarity"
 	"database/sql"
 	"encoding/json"
@@ -71,7 +71,8 @@ func NewDB(path string) (*DB, error) {
 			vector_similarity_threshold REAL DEFAULT 0.5,
 			days_lookback INTEGER DEFAULT 10,
 			composite_vector_weight REAL DEFAULT 0.7,
-			final_similarity_threshold REAL DEFAULT 0.65
+			final_similarity_threshold REAL DEFAULT 0.65,
+			xlsx_columns TEXT
 		);`,
 	)
 	if err != nil {
@@ -81,7 +82,7 @@ func NewDB(path string) (*DB, error) {
 	return &DB{db}, nil
 }
 
-func (db *DB) SaveArticle(article *article.Article) error {
+func (db *DB) SaveArticle(article *domain.Article) error {
 	embJSON, err := json.Marshal(article.Embedding)
 	if err != nil {
 		return err
@@ -112,7 +113,7 @@ func (db *DB) SaveArticle(article *article.Article) error {
 	return err
 }
 
-func (db *DB) FindSimilar(target []float64, threshold float64, maxAgeDays uint) ([]article.Article, error) {
+func (db *DB) FindSimilar(target []float64, threshold float64, maxAgeDays uint) ([]domain.Article, error) {
 	// Normalize the target vector once
 	similarity.NormalizeVector(target)
 
@@ -126,9 +127,9 @@ func (db *DB) FindSimilar(target []float64, threshold float64, maxAgeDays uint) 
 	}
 	defer rows.Close()
 
-	var results []article.Article
+	var results []domain.Article
 	for rows.Next() {
-		var a article.Article
+		var a domain.Article
 		var embJSON, similarURLsJSON []byte
 
 		if err := rows.Scan(
@@ -172,7 +173,7 @@ func (db *DB) FindSimilar(target []float64, threshold float64, maxAgeDays uint) 
 }
 
 // Пакетная вставка (исправленная версия)
-func (db *DB) BatchInsert(articles []*article.Article) error {
+func (db *DB) BatchInsert(articles []*domain.Article) error {
 	tx, err := db.Begin()
 	if err != nil {
 		return err
@@ -238,8 +239,8 @@ func (db *DB) HasExactDuplicate(content string) (bool, error) {
 	return count > 0, nil
 }
 
-func (db *DB) GetExactDuplicate(content string) (*article.Article, error) {
-	var article article.Article
+func (db *DB) GetExactDuplicate(content string) (*domain.Article, error) {
+	var article domain.Article
 	var embJSON, similarURLsJSON []byte
 
 	err := db.QueryRow(`
@@ -286,25 +287,26 @@ func (db *DB) GetExactDuplicate(content string) (*article.Article, error) {
 	return &article, nil
 }
 
-// UserConfig methods
 func (db *DB) GetUserConfig(userID int64) (*UserConfig, error) {
-	config := &UserConfig{
-		UserID: userID,
-	}
+	config := &UserConfig{}
+	var columnsJSON string
 
 	err := db.QueryRow(`
-		SELECT 
-			vector_similarity_threshold,
-			days_lookback,
-			composite_vector_weight,
-			final_similarity_threshold
-		FROM user_configs
-		WHERE user_id = ?
-	`, userID).Scan(
+        SELECT 
+            user_id,
+            vector_similarity_threshold,
+            days_lookback,
+            composite_vector_weight,
+            final_similarity_threshold,
+            xlsx_columns
+        FROM user_configs
+        WHERE user_id = ?`, userID).Scan(
+		&config.UserID,
 		&config.VectorSimilarityThreshold,
 		&config.DaysLookback,
 		&config.CompositeVectorWeight,
 		&config.FinalSimilarityThreshold,
+		&columnsJSON,
 	)
 
 	if err == sql.ErrNoRows {
@@ -313,24 +315,36 @@ func (db *DB) GetUserConfig(userID int64) (*UserConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Десериализуем колонки
+	if err := json.Unmarshal([]byte(columnsJSON), &config.XLSXColumns); err != nil {
+		return nil, err
+	}
+
 	return config, nil
 }
 
 func (db *DB) SaveUserConfig(config *UserConfig) error {
-	_, err := db.Exec(`
-		REPLACE INTO user_configs (
-			user_id,
-			vector_similarity_threshold,
-			days_lookback,
-			composite_vector_weight,
-			final_similarity_threshold
-		) VALUES (?, ?, ?, ?, ?)
-	`,
+	columnsJSON, err := json.Marshal(config.XLSXColumns)
+	if err != nil {
+		return err
+	}
+
+	_, err = db.Exec(`
+        REPLACE INTO user_configs (
+            user_id,
+            vector_similarity_threshold,
+            days_lookback,
+            composite_vector_weight,
+            final_similarity_threshold,
+            xlsx_columns
+        ) VALUES (?, ?, ?, ?, ?, ?)`,
 		config.UserID,
 		config.VectorSimilarityThreshold,
 		config.DaysLookback,
 		config.CompositeVectorWeight,
 		config.FinalSimilarityThreshold,
+		columnsJSON,
 	)
 	return err
 }
@@ -344,7 +358,7 @@ func (db *DB) IncrementCitation(articleID int64) error {
 	_, err := db.Exec("UPDATE articles SET citations = citations + 1 WHERE id = ?", articleID)
 	return err
 }
-func (db *DB) GetAllArticles() ([]article.Article, error) {
+func (db *DB) GetAllArticles() ([]domain.Article, error) {
 	rows, err := db.Query(`
         SELECT 
             id, content, title, embedding, source_url, 
@@ -358,9 +372,9 @@ func (db *DB) GetAllArticles() ([]article.Article, error) {
 	}
 	defer rows.Close()
 
-	var articles []article.Article
+	var articles []domain.Article
 	for rows.Next() {
-		var a article.Article
+		var a domain.Article
 		var embJSON, similarURLsJSON []byte
 
 		if err := rows.Scan(

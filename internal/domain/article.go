@@ -16,7 +16,7 @@
    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-package article
+package domain
 
 type Article struct {
 	ID             int64     `db:"id"`
