@@ -165,16 +165,12 @@ func (bot *Bot) formatAnalysisResult(art *domain.Article) string {
 func (bot *Bot) Do(message *tgbotapi.Message) {
 	parts := strings.Split(message.Text, " ")
 	if len(parts) < 2 {
-		msg := tgbotapi.NewMessage(message.Chat.ID, "Вы не указали URL")
-		msg.ReplyToMessageID = message.MessageID
-		bot.api.Send(msg)
+		bot.sendError(message.Chat.ID, "Вы не указали URL", message.MessageID)
 		return
 	}
 	url := parts[1]
 	if !strings.HasPrefix(url, "http") {
-		msg := tgbotapi.NewMessage(message.Chat.ID, "Пожалуйста, отправьте действительный URL, начинающийся с http/https")
-		msg.ReplyToMessageID = message.MessageID
-		bot.api.Send(msg)
+		bot.sendError(message.Chat.ID, "Пожалуйста, отправьте действительный URL, начинающийся с http/https", message.MessageID)
 		return
 	}
 
@@ -189,9 +185,7 @@ func (bot *Bot) Do(message *tgbotapi.Message) {
 	// Анализируем статью
 	art, err := bot.analyzeArticle(url)
 	if err != nil {
-		errorMsg := tgbotapi.NewMessage(message.Chat.ID, "❌ Ошибка обработки страницы: "+err.Error())
-		errorMsg.ReplyToMessageID = message.MessageID
-		bot.api.Send(errorMsg)
+		bot.sendError(message.Chat.ID, "Ошибка обработки страницы: "+err.Error(), message.MessageID)
 		return
 	}
 	if art.PublishedAt == 0 {
@@ -223,7 +217,7 @@ func (bot *Bot) Do(message *tgbotapi.Message) {
 		return
 	}
 
-	// Поиск схожих статей
+	// Поиск схожих статей ТОЛЬКО СРЕДИ ОРИГИНАЛЬНЫХ (citations >= 1)
 	similar, err := bot.conf.GetDB().FindSimilar(
 		embedding,
 		userConfig.VectorSimilarityThreshold,
@@ -244,44 +238,34 @@ func (bot *Bot) Do(message *tgbotapi.Message) {
 				embedding,
 				candidate.Embedding,
 			)
-			candidate.TrueSimilarity = score
-
 			if err == nil && score >= userConfig.FinalSimilarityThreshold {
-				bot.conf.GetDB().IncrementCitation(candidate.ID)
-				candidate.Citations += 1
+				candidate.TrueSimilarity = score
 				verified = append(verified, candidate)
-			}
 
-			if bot.conf.Debug {
-				log.Printf("Кандидат: True: %.3f; Vector: %.3f", candidate.TrueSimilarity, candidate.Similarity)
+				// Добавляем ссылку на текущую статью в оригинальную
+				if err := bot.conf.GetDB().AddSimilarURL(candidate.ID, url); err != nil {
+					log.Printf("Ошибка добавления URL в оригинальную статью: %s", err)
+				}
+
+				// Инкремент цитирований
+				err = bot.conf.GetDB().IncrementCitation(candidate.ID)
+				if err != nil {
+					log.Printf("Ошибка инкремента количества цитирований: %s", err)
+				}
 			}
 		}
 	}
 
-	// Установка нескольких ссылок
-	if len(verified) > 0 {
-		art.SimilarURLs = make([]string, 0, len(verified))
-		for _, a := range verified {
-			art.SimilarURLs = append(art.SimilarURLs, a.SourceURL)
-		}
-	}
+	// Устанавливаем флаг оригинальности для новой статьи
+	art.Original = len(verified) == 0
 
-	if len(verified) == 0 {
-		// Уникальная
+	// Сохранение статьи в базу
+	if len(verified) == 0 || bot.conf.Analysis.SaveSimilarArticles {
 		if err := bot.saveNewArticle(art, embedding, url); err != nil {
 			bot.sendError(message.Chat.ID, "Ошибка сохранения", message.MessageID)
 			log.Printf("Ошибка сохранения: %s", err)
 			return
 		}
-	} else if len(verified) > 0 && bot.conf.Analysis.SaveSimilarArticles {
-		if err := bot.saveNewArticle(art, embedding, url); err != nil {
-			bot.sendError(message.Chat.ID, "Ошибка сохранения", message.MessageID)
-			log.Printf("Ошибка сохранения: %s", err)
-			return
-		}
-		bot.sendSuccess(message.Chat.ID, "Статья успешно добавлена в базу", message.MessageID)
-	} else {
-		bot.sendSuccess(message.Chat.ID, "Статья не добавлена в базу, так как сохранение похожих статей не разрешено", message.MessageID)
 	}
 
 	duplicatesText := bot.generateDuplicatesMessage(verified, *art)
@@ -1527,4 +1511,21 @@ func (bot *Bot) ShowXLSXColumns(message *tgbotapi.Message) {
 	)
 	msg.ParseMode = "Markdown"
 	bot.api.Send(msg)
+}
+
+func (bot *Bot) TogglePushToGoogleSheets(message *tgbotapi.Message) {
+	if bot.conf.Sheets.PushToGoogleSheet {
+		bot.conf.Sheets.PushToGoogleSheet = false
+		bot.api.Send(
+			tgbotapi.NewMessage(message.Chat.ID, "Добавление данных в гугл таблицу отключено."),
+		)
+	} else {
+		bot.conf.Sheets.PushToGoogleSheet = true
+		bot.api.Send(
+			tgbotapi.NewMessage(message.Chat.ID, "Добавление данных в гугл таблицу включено."),
+		)
+	}
+
+	// Обновляем конфигурационный файл
+	bot.conf.Update()
 }

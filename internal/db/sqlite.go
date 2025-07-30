@@ -23,6 +23,7 @@ import (
 	"Unbewohnte/ACASbot/internal/similarity"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"math"
 	"time"
 
@@ -50,16 +51,18 @@ func NewDB(path string) (*DB, error) {
             content TEXT NOT NULL,
 			title TEXT,
             embedding BLOB NOT NULL,
-            source_url TEXT,
+            source_url TEXT UNIQUE,
             created_at INTEGER NOT NULL,
 			published_at INTEGER,
-			citations INTEGER,
+			citations INTEGER DEFAULT 0,
+			original BOOLEAN DEFAULT 0,
 			similar_urls TEXT DEFAULT '[]',
 			affiliation TEXT,
 			sentiment TEXT,
 			justification TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_articles_time ON articles(created_at);
+		CREATE INDEX IF NOT EXISTS idx_articles_original ON articles(original);
     `)
 	if err != nil {
 		return nil, err
@@ -95,9 +98,9 @@ func (db *DB) SaveArticle(article *domain.Article) error {
 
 	_, err = db.Exec(`INSERT INTO articles(
         content, title, embedding, source_url, 
-        created_at, published_at, citations, similar_urls, 
+        created_at, published_at, citations, original, similar_urls, 
         affiliation, sentiment, justification
-    ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		article.Content,
 		article.Title,
 		embJSON,
@@ -105,6 +108,7 @@ func (db *DB) SaveArticle(article *domain.Article) error {
 		article.CreatedAt,
 		article.PublishedAt,
 		article.Citations,
+		article.Original,
 		similarJSON,
 		article.Affiliation,
 		article.Sentiment,
@@ -118,9 +122,9 @@ func (db *DB) FindSimilar(target []float64, threshold float64, maxAgeDays uint) 
 	similarity.NormalizeVector(target)
 
 	rows, err := db.Query(`
-        SELECT id, content, title, embedding, source_url, created_at, published_at, citations, similar_urls, affiliation, sentiment, justification
+        SELECT id, content, title, embedding, source_url, created_at, published_at, citations, original, similar_urls, affiliation, sentiment, justification
         FROM articles 
-        WHERE created_at >= ?
+        WHERE created_at >= ? AND original >= 1
     `, time.Now().AddDate(0, 0, -int(maxAgeDays)).Unix())
 	if err != nil {
 		return nil, err
@@ -141,6 +145,7 @@ func (db *DB) FindSimilar(target []float64, threshold float64, maxAgeDays uint) 
 			&a.CreatedAt,
 			&a.PublishedAt,
 			&a.Citations,
+			&a.Original,
 			&similarURLsJSON,
 			&a.Affiliation,
 			&a.Sentiment,
@@ -172,60 +177,6 @@ func (db *DB) FindSimilar(target []float64, threshold float64, maxAgeDays uint) 
 	return results, nil
 }
 
-// Пакетная вставка (исправленная версия)
-func (db *DB) BatchInsert(articles []*domain.Article) error {
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if err != nil {
-			tx.Rollback()
-		}
-	}()
-
-	stmt, err := tx.Prepare(`
-		INSERT INTO articles(content, title, embedding, source_url, created_at, published_at, citations, similar_urls, affiliation, sentiment, justification) 
-		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`)
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-
-	for _, a := range articles {
-		embJSON, err := json.Marshal(a.Embedding)
-		if err != nil {
-			return err
-		}
-
-		similarJSON, err := json.Marshal(a.SimilarURLs) // Добавлено
-		if err != nil {
-			return err
-		}
-
-		_, err = stmt.Exec(
-			a.Content,
-			a.Title,
-			embJSON,
-			a.SourceURL,
-			a.CreatedAt,
-			a.PublishedAt,
-			a.Citations,
-			a.Citations,
-			similarJSON,
-			a.Affiliation,
-			a.Sentiment,
-			a.Justification,
-		)
-		if err != nil {
-			return err
-		}
-	}
-
-	return tx.Commit()
-}
-
 func (db *DB) HasExactDuplicate(content string) (bool, error) {
 	var count int
 	err := db.QueryRow(
@@ -244,7 +195,7 @@ func (db *DB) GetExactDuplicate(content string) (*domain.Article, error) {
 	var embJSON, similarURLsJSON []byte
 
 	err := db.QueryRow(`
-        SELECT id, content, title, embedding, source_url, created_at, published_at, citations, similar_urls, affiliation, sentiment, justification
+        SELECT id, content, title, embedding, source_url, created_at, published_at, citations, original, similar_urls, affiliation, sentiment, justification
         FROM articles 
         WHERE content = ?
         LIMIT 1`,
@@ -258,6 +209,7 @@ func (db *DB) GetExactDuplicate(content string) (*domain.Article, error) {
 		&article.CreatedAt,
 		&article.PublishedAt,
 		&article.Citations,
+		&article.Original,
 		&similarURLsJSON,
 		&article.Affiliation,
 		&article.Sentiment,
@@ -362,7 +314,7 @@ func (db *DB) GetAllArticles() ([]domain.Article, error) {
 	rows, err := db.Query(`
         SELECT 
             id, content, title, embedding, source_url, 
-            created_at, published_at, citations, similar_urls, 
+            created_at, published_at, citations, original, similar_urls, 
             affiliation, sentiment, justification
         FROM articles
         ORDER BY published_at ASC
@@ -386,6 +338,7 @@ func (db *DB) GetAllArticles() ([]domain.Article, error) {
 			&a.CreatedAt,
 			&a.PublishedAt,
 			&a.Citations,
+			&a.Original,
 			&similarURLsJSON,
 			&a.Affiliation,
 			&a.Sentiment,
@@ -424,4 +377,60 @@ func (db *DB) HasArticleByURL(url string) (bool, error) {
 		return false, err
 	}
 	return count > 0, nil
+}
+
+func (db *DB) AddSimilarURL(originalArticleID int64, citingArticleURL string) error {
+	// Проверяем, что статья оригинальная
+	var original bool
+	err := db.QueryRow("SELECT original FROM articles WHERE id = ?", originalArticleID).Scan(&original)
+	if err != nil {
+		return err
+	}
+
+	if !original {
+		return fmt.Errorf("статья с ID %d не является оригинальной", originalArticleID)
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		}
+	}()
+
+	var similarJSON []byte
+	err = tx.QueryRow("SELECT similar_urls FROM articles WHERE id = ?", originalArticleID).Scan(&similarJSON)
+	if err != nil {
+		return err
+	}
+
+	var urls []string
+	if len(similarJSON) > 0 {
+		if err := json.Unmarshal(similarJSON, &urls); err != nil {
+			return err
+		}
+	}
+
+	// Проверяем, есть ли уже такой URL
+	for _, u := range urls {
+		if u == citingArticleURL {
+			return tx.Commit() // ничего не меняем
+		}
+	}
+
+	urls = append(urls, citingArticleURL)
+	newSimilarJSON, err := json.Marshal(urls)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec("UPDATE articles SET similar_urls = ? WHERE id = ?", newSimilarJSON, originalArticleID)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }

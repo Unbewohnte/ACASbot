@@ -27,6 +27,7 @@ type Article struct {
 	CreatedAt      int64     `db:"created_at"`   // Unix timestamp
 	PublishedAt    int64     `db:"published_at"` // Unix timestamp
 	Citations      int64     `db:"citations"`
+	Original       bool      `db:"original"` // Флаг оригинальности
 	SimilarURLs    []string  `db:"similar_urls"`
 	Similarity     float64   `db:"-"`
 	TrueSimilarity float64   `db:"-"`

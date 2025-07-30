@@ -264,6 +264,13 @@ func (bot *Bot) Init() {
 		Call:        bot.ShowXLSXColumns,
 	})
 
+	bot.NewCommand(Command{
+		Name:        "togglepushtogoogle",
+		Description: "Не отправлять|Отправлять результаты анализа в гугл таблицу",
+		Group:       "Таблицы",
+		Call:        bot.TogglePushToGoogleSheets,
+	})
+
 	if bot.conf.Sheets.PushToGoogleSheet {
 		sheetsClient, err := spreadsheet.NewGoogleSheetsClient(
 			context.Background(),

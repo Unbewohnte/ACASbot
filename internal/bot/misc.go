@@ -97,7 +97,7 @@ func (bot *Bot) saveNewArticle(art *domain.Article, embedding []float64, sourceU
 		SourceURL:     sourceURL,
 		CreatedAt:     time.Now().Unix(),
 		PublishedAt:   art.PublishedAt,
-		Citations:     art.Citations,
+		Original:      art.Original,
 		SimilarURLs:   art.SimilarURLs,
 		Affiliation:   art.Affiliation,
 		Sentiment:     art.Sentiment,
@@ -119,7 +119,7 @@ func (bot *Bot) generateDuplicatesMessage(similar []domain.Article, original dom
 		msgText += fmt.Sprintf("- Общая схожесть: %.0f%%\n", art.TrueSimilarity*100)
 		msgText += fmt.Sprintf("-- Схожесть текста: %.0f%%\n", similarity.CalculateEnhancedTextSimilarity(original.Content, art.Content)*100)
 		msgText += fmt.Sprintf("-- Схожесть векторов: %.0f%%\n", art.Similarity*100)
-		msgText += fmt.Sprintf("- Цитирований: %d\n", art.Citations)
+		msgText += fmt.Sprintf("- Цитирований: %d\n", len(art.SimilarURLs))
 
 	}
 	return msgText
