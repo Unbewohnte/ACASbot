@@ -102,6 +102,14 @@ func GenerateFromDatabase(articles []domain.Article) (*bytes.Buffer, error) {
 		// Похожие статьи
 		cell = row.AddCell()
 		cell.Value = strings.Join(art.SimilarURLs, ";")
+
+		// Оригинальность
+		cell = row.AddCell()
+		if art.Original {
+			cell.Value = "Да"
+		} else {
+			cell.Value = "Нет"
+		}
 	}
 
 	// Сохраняем в буфер
