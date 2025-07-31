@@ -262,6 +262,7 @@ func (db *DB) GetUserConfig(userID int64) (*UserConfig, error) {
 	)
 
 	if err == sql.ErrNoRows {
+		db.SaveUserConfig(DefaultUserConfig(userID))
 		return DefaultUserConfig(userID), nil
 	}
 	if err != nil {

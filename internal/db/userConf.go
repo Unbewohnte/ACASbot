@@ -47,7 +47,7 @@ func DefaultUserConfig(userID int64) *UserConfig {
 			},
 			{
 				Name:  "Ресурс",
-				Field: "source_url", // Вернёт hostname через специальную обработку
+				Field: "hostname", // Вернёт hostname через специальную обработку
 			},
 			{
 				Name:  "Заголовок",
@@ -55,7 +55,7 @@ func DefaultUserConfig(userID int64) *UserConfig {
 			},
 			{
 				Name:  "URL",
-				Field: "{{.SourceURL}}", // Прямая подстановка без обработки
+				Field: "SourceURL", // Прямая подстановка без обработки
 			},
 			{
 				Name:  "Примечание",

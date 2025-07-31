@@ -158,7 +158,7 @@ func getField(art domain.Article, fieldName string) (string, error) {
 			return formatDate(time.Unix(art.PublishedAt, 0)), nil
 		}
 		return "", nil
-	case "source_url", "sourceurl":
+	case "resource", "hostname":
 		u, err := url.Parse(art.SourceURL)
 		if err != nil || u == nil {
 			return art.SourceURL, nil
