@@ -166,6 +166,12 @@ func getField(art domain.Article, fieldName string) (string, error) {
 		return u.Hostname(), nil
 	case "similar_urls", "similarurls":
 		return strings.Join(art.SimilarURLs, ";"), nil
+	case "original":
+		if art.Original {
+			return "Да", nil
+		} else {
+			return "Нет", nil
+		}
 	}
 
 	// Рефлексия для остальных полей

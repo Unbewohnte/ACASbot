@@ -73,6 +73,10 @@ func DefaultUserConfig(userID int64) *UserConfig {
 				Name:  "Похожие статьи",
 				Field: "similar_urls",
 			},
+			{
+				Name:  "Оригинальность",
+				Field: "original",
+			},
 		},
 	}
 }
