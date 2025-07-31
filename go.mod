@@ -6,6 +6,7 @@ require (
 	github.com/chromedp/cdproto v0.0.0-20250706212322-41fb261d0659
 	github.com/chromedp/chromedp v0.13.7
 	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
+	github.com/tealeg/xlsx v1.0.5
 	github.com/tealeg/xlsx/v3 v3.3.13
 	google.golang.org/api v0.238.0
 )
@@ -56,7 +57,6 @@ require (
 	github.com/rogpeppe/go-internal v1.13.1 // indirect
 	github.com/rs/zerolog v1.33.0 // indirect
 	github.com/shabbyrobe/xmlwriter v0.0.0-20200208144257-9fca06d00ffa // indirect
-	github.com/tealeg/xlsx v1.0.5 // indirect
 	github.com/tetratelabs/wazero v1.8.1 // indirect
 	github.com/wasilibs/go-re2 v1.7.0 // indirect
 	github.com/wasilibs/wazero-helpers v0.0.0-20240620070341-3dff1577cd52 // indirect
