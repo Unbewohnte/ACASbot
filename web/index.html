@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>ACASbot Web</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; }
+        #chat { height: 400px; overflow-y: auto; border: 1px solid #ccc; padding: 10px; margin-bottom: 10px; }
+        .message { margin-bottom: 10px; }
+        .bot { color: #1a73e8; }
+        .log { color: #666; font-size: 0.9em; }
+        .error { color: #d32f2f; }
+        .status { color: #388e3c; }
+    </style>
+</head>
+<body>
+    <div id="login-form" style="display: none;">
+        <h2>Авторизация</h2>
+        <input type="text" id="username" placeholder="Логин"><br>
+        <input type="password" id="password" placeholder="Пароль"><br>
+        <button onclick="login()">Войти</button>
+    </div>
+    
+    <div id="chat-container" style="display: none;">
+        <div id="status" class="status">Соединение: отключено</div>
+        <div id="chat"></div>
+        <input type="text" id="command" placeholder="Введите команду..." disabled>
+        <button onclick="sendCommand()" disabled>Отправить</button>
+    </div>
+
+    <script>
+        let socket;
+        const chat = document.getElementById("chat");
+        const loginForm = document.getElementById("login-form");
+        const chatContainer = document.getElementById("chat-container");
+        const commandInput = document.getElementById("command");
+        const sendButton = document.querySelector("#chat-container button");
+        const statusDiv = document.getElementById("status");
+        
+        // Показываем форму логина
+        loginForm.style.display = "block";
+        
+        function connectWebSocket() {
+            socket = new WebSocket("ws://" + window.location.host + "/ws");
+            
+            socket.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                addMessage(data);
+            };
+            
+            socket.onopen = function() {
+                console.log("WebSocket connected");
+                updateStatus("Соединение: активно", "status");
+                commandInput.disabled = false;
+                sendButton.disabled = false;
+            };
+            
+            socket.onclose = function() {
+                console.log("WebSocket disconnected");
+                updateStatus("Соединение: отключено (переподключение через 5 сек...)", "error");
+                commandInput.disabled = true;
+                sendButton.disabled = true;
+                
+                // Пытаемся переподключиться через 5 секунд
+                setTimeout(connectWebSocket, 5000);
+            };
+            
+            socket.onerror = function(error) {
+                console.log("WebSocket error:", error);
+                updateStatus("Ошибка соединения", "error");
+            };
+        }
+        
+        // Начальное подключение
+        connectWebSocket();
+        
+        function updateStatus(text, className) {
+            statusDiv.textContent = text;
+            statusDiv.className = className;
+        }
+        
+        function addMessage(msg) {
+            const div = document.createElement("div");
+            div.className = "message";
+            
+            switch(msg.type) {
+                case "analysis":
+                    div.innerHTML = `<strong>Результат:</strong><br>${msg.content.replace(/\n/g, '<br>')}`;
+                    break;
+                case "log":
+                    div.className += " log";
+                    div.textContent = msg.content;
+                    break;
+                case "error":
+                    div.className += " error";
+                    div.textContent = msg.content;
+                    break;
+                case "status":
+                    div.className += " status";
+                    div.textContent = msg.content;
+                    break;
+                default:
+                    div.textContent = msg.content;
+            }
+            
+            chat.appendChild(div);
+            chat.scrollTop = chat.scrollHeight;
+        }
+        
+        function login() {
+            const username = document.getElementById("username").value;
+            const password = document.getElementById("password").value;
+            
+            fetch("/login", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/x-www-form-urlencoded"
+                },
+                body: `username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`
+            })
+            .then(response => {
+                if (response.ok) {
+                    loginForm.style.display = "none";
+                    chatContainer.style.display = "block";
+                    addMessage({type: "status", content: "Авторизация успешна"});
+                } else {
+                    addMessage({type: "error", content: "Ошибка авторизации"});
+                }
+            })
+            .catch(err => {
+                addMessage({type: "error", content: "Ошибка сети: " + err.message});
+            });
+        }
+        
+        function sendCommand() {
+            const command = commandInput.value.trim();
+            
+            if (!command) return;
+            
+            if (socket.readyState !== WebSocket.OPEN) {
+                addMessage({type: "error", content: "Ошибка: соединение не активно"});
+                return;
+            }
+            
+            try {
+                socket.send(JSON.stringify({
+                    type: "command",
+                    content: command
+                }));
+                
+                addMessage({
+                    type: "message",
+                    content: command,
+                    from: "Вы"
+                });
+                
+                commandInput.value = "";
+            } catch (err) {
+                addMessage({type: "error", content: "Ошибка отправки команды: " + err.message});
+            }
+        }
+        
+        // Отправка по Enter
+        commandInput.addEventListener("keypress", e => {
+            if (e.key === "Enter") sendCommand();
+        });
+    </script>
+</body>
+</html>

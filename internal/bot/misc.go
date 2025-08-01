@@ -126,35 +126,36 @@ func (bot *Bot) generateDuplicatesMessage(similar []domain.Article, original dom
 }
 
 func (bot *Bot) sendError(chatID int64, text string, replyTo int) {
-	msg := tgbotapi.NewMessage(chatID, "❌ "+text)
-	msg.ReplyToMessageID = replyTo
-	bot.api.Send(msg)
+	bot.sendMessage(chatID, "❌ "+text, replyTo)
 }
 
 func (bot *Bot) sendSuccess(chatID int64, text string, replyTo int) {
-	msg := tgbotapi.NewMessage(chatID, "✅ "+text)
+	bot.sendMessage(chatID, "✅ "+text, replyTo)
+}
+
+func (bot *Bot) sendMessage(chatID int64, text string, replyTo int) {
+	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ReplyToMessageID = replyTo
+	msg.ParseMode = "Markdown"
 	bot.api.Send(msg)
 }
 
-func (bot *Bot) notifyExactDuplicate(message *tgbotapi.Message, existingArticle *domain.Article) {
+func (bot *Bot) notifyExactDuplicate(existingArticle *domain.Article) string {
 	msgText := fmt.Sprintf(`
 ❌ Точный дубликат уже существует!
 
 Оригинал:
-- Заголовок: %s
-- URL: %s
-- Добавлен: %s
-- Цитирований: %d
+- *Заголовок:* %s
+- *URL:* [%s](%s)
+- *Добавлен:* %s
+- *Цитирований:* %d
 `,
 		existingArticle.Title,
+		existingArticle.SourceURL,
 		existingArticle.SourceURL,
 		time.Unix(existingArticle.CreatedAt, 0).Format("2006-01-02 15:04"),
 		existingArticle.Citations,
 	)
 
-	msg := tgbotapi.NewMessage(message.Chat.ID, msgText)
-	msg.ParseMode = "Markdown"
-	msg.ReplyToMessageID = message.MessageID
-	bot.api.Send(msg)
+	return msgText
 }

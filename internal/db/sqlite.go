@@ -68,20 +68,6 @@ func NewDB(path string) (*DB, error) {
 		return nil, err
 	}
 
-	_, err = db.Exec(`
-		CREATE TABLE IF NOT EXISTS user_configs (
-			user_id INTEGER PRIMARY KEY,
-			vector_similarity_threshold REAL DEFAULT 0.5,
-			days_lookback INTEGER DEFAULT 10,
-			composite_vector_weight REAL DEFAULT 0.7,
-			final_similarity_threshold REAL DEFAULT 0.65,
-			xlsx_columns TEXT
-		);`,
-	)
-	if err != nil {
-		return nil, err
-	}
-
 	return &DB{db}, nil
 }
 
@@ -237,69 +223,6 @@ func (db *DB) GetExactDuplicate(content string) (*domain.Article, error) {
 	}
 
 	return &article, nil
-}
-
-func (db *DB) GetUserConfig(userID int64) (*UserConfig, error) {
-	config := &UserConfig{}
-	var columnsJSON string
-
-	err := db.QueryRow(`
-        SELECT 
-            user_id,
-            vector_similarity_threshold,
-            days_lookback,
-            composite_vector_weight,
-            final_similarity_threshold,
-            xlsx_columns
-        FROM user_configs
-        WHERE user_id = ?`, userID).Scan(
-		&config.UserID,
-		&config.VectorSimilarityThreshold,
-		&config.DaysLookback,
-		&config.CompositeVectorWeight,
-		&config.FinalSimilarityThreshold,
-		&columnsJSON,
-	)
-
-	if err == sql.ErrNoRows {
-		db.SaveUserConfig(DefaultUserConfig(userID))
-		return DefaultUserConfig(userID), nil
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	// Десериализуем колонки
-	if err := json.Unmarshal([]byte(columnsJSON), &config.XLSXColumns); err != nil {
-		return nil, err
-	}
-
-	return config, nil
-}
-
-func (db *DB) SaveUserConfig(config *UserConfig) error {
-	columnsJSON, err := json.Marshal(config.XLSXColumns)
-	if err != nil {
-		return err
-	}
-
-	_, err = db.Exec(`
-        REPLACE INTO user_configs (
-            user_id,
-            vector_similarity_threshold,
-            days_lookback,
-            composite_vector_weight,
-            final_similarity_threshold,
-            xlsx_columns
-        ) VALUES (?, ?, ?, ?, ?, ?)`,
-		config.UserID,
-		config.VectorSimilarityThreshold,
-		config.DaysLookback,
-		config.CompositeVectorWeight,
-		config.FinalSimilarityThreshold,
-		columnsJSON,
-	)
-	return err
 }
 
 func (db *DB) DeleteAllArticles() error {

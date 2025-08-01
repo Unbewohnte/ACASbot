@@ -79,6 +79,8 @@ require (
 
 require (
 	github.com/PuerkitoBio/goquery v1.10.3
+	github.com/gorilla/mux v1.8.1
+	github.com/gorilla/websocket v1.5.3
 	github.com/markusmobius/go-trafilatura v1.12.2
 	github.com/ollama/ollama v0.9.0
 	golang.org/x/crypto v0.39.0 // indirect

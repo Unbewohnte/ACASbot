@@ -1,549 +1,247 @@
-/*
-   ACASbot - Article Context And Sentiment bot
-   Copyright (C) 2025  Unbewohnte (Kasyanov Nikolay Alexeevich)
-
-   This program is free software: you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
-
-   You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <https://www.gnu.org/licenses/>.
-*/
-
 package bot
 
 import (
-	"Unbewohnte/ACASbot/internal/domain"
-	"compress/flate"
-	"compress/gzip"
-	"context"
-	"errors"
+	"encoding/json"
 	"fmt"
-	"io"
 	"log"
-	"math/rand"
 	"net/http"
-	"net/http/cookiejar"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
-	"github.com/PuerkitoBio/goquery"
-	"github.com/chromedp/cdproto/input"
-	"github.com/chromedp/cdproto/network"
-	"github.com/chromedp/cdproto/runtime"
-	"github.com/chromedp/chromedp"
-	trafilatura "github.com/markusmobius/go-trafilatura"
+	"github.com/gorilla/mux"
+	"github.com/gorilla/websocket"
 )
 
-type ArticleContent struct {
-	Title   string
-	Content string
-	Success bool
-	PubDate *time.Time
+type WebMessage struct {
+	Type    string `json:"type"`
+	Content string `json:"content"`
+	From    string `json:"from,omitempty"`
 }
 
-type ArticleAnalysis struct {
-	URL            string
-	Content        ArticleContent
-	TitleFromModel string
-	Affiliation    string
-	Sentiment      string
-	Justification  string
-	Errors         []error
+type WebClient struct {
+	conn *websocket.Conn
+	send chan WebMessage
 }
 
-func (bot *Bot) ExtractWebContent(articleURL string) (*domain.Article, error) {
-	var htmlData []byte
-	var err error
-
-	htmlData, err = bot.extractWithHeadlessBrowser(articleURL)
-	if err != nil {
-		log.Printf("Не получилось получить данные при помощи headless браузера: %s. Откат к обычному запросу...", err)
-
-		htmlData, err = bot.extractWithoutHeadless(articleURL)
-		if err != nil {
-			log.Printf("Не получилось получить данные при помощи обычного запроса: %s", err)
-			return nil, err
-		}
-	}
-
-	html := string(htmlData)
-
-	// Используем trafilatura вместо readability
-	parseOpts := trafilatura.Options{
-		ExcludeTables:   false,
-		IncludeLinks:    false,
-		Deduplicate:     true,
-		ExcludeComments: true,
-		EnableFallback:  true,
-	}
-
-	doc, err := trafilatura.Extract(strings.NewReader(html), parseOpts)
-	if err != nil {
-		return nil, fmt.Errorf("ошибка извлечения контента: %w", err)
-	}
-
-	if doc != nil && doc.ContentText != "" {
-		var pubTime *time.Time
-		if !doc.Metadata.Date.IsZero() {
-			pubTime = &doc.Metadata.Date
-		}
-
-		return &domain.Article{
-			Title:       doc.Metadata.Title,
-			Content:     doc.ContentText,
-			PublishedAt: pubTime.Unix(),
-			SourceURL:   articleURL,
-		}, nil
-	}
-
-	// Пробуем кастомный парсер
-	queryDoc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
-	if err != nil {
-		return nil, fmt.Errorf("ошибка парсинга HTML: %w", err)
-	}
-
-	return bot.extractCustomContent(queryDoc)
+type WebServer struct {
+	bot      *Bot
+	upgrader websocket.Upgrader
+	clients  map[*WebClient]bool
+	mu       sync.Mutex
 }
 
-var userAgents = []string{
-	// Современные Chrome (Windows, Mac, Linux)
-	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-	"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-
-	// Firefox
-	"Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:126.0) Gecko/20100101 Firefox/126.0",
-	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:126.0) Gecko/20100101 Firefox/126.0",
-
-	// Safari
-	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
-
-	// Edge
-	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 Edg/125.0.0.0",
-
-	// Мобильные
-	"Mozilla/5.0 (iPhone; CPU iPhone OS 17_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1",
-	"Mozilla/5.0 (Linux; Android 14; SM-S901B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36",
-}
-
-func (bot *Bot) getRandomUserAgent() string {
-	return userAgents[rand.Intn(len(userAgents))]
-}
-
-func (bot *Bot) extractWithHeadlessBrowser(articleURL string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	opts := append(chromedp.DefaultExecAllocatorOptions[:],
-		chromedp.UserAgent(bot.getRandomUserAgent()),
-		chromedp.WindowSize(1280, 800),
-		chromedp.Flag("headless", true),
-		chromedp.Flag("no-sandbox", true),
-		chromedp.Flag("disable-dev-shm-usage", true),
-		chromedp.Flag("ignore-certificate-errors", true),
-
-		// Блокируем ненужные ресурсы
-		chromedp.Flag("blink-settings", "imagesEnabled=false,stylesheetEnabled=false,scriptEnabled=true"),
-	)
-
-	allocCtx, cancel := chromedp.NewExecAllocator(ctx, opts...)
-	defer cancel()
-
-	var htmlContent string
-	actions := []chromedp.Action{
-		network.Enable(),
-		network.SetExtraHTTPHeaders(map[string]interface{}{
-			"Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-			"Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
-			"Cache-Control":   "no-cache",
-		}),
-		// Блокируем загрузку тяжелых ресурсов
-		network.SetBlockedURLs([]string{
-			"*.png", "*.jpg", "*.jpeg", "*.gif", "*.svg", "*.webp",
-			"*.css", "*.woff", "*.woff2", "*.ttf", "*.eot",
-			"*.mp4", "*.webm", "*.ogg", "*.avi",
-		}),
-		chromedp.Navigate(articleURL),
-
-		// Обнуляем флаг webdriver
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			_, _, err := runtime.Evaluate(`delete navigator.__proto__.webdriver`).Do(ctx)
-			return err
-		}),
-
-		chromedp.Sleep(3 * time.Second), // Минимальная задержка для старта JS
-		chromedp.MouseEvent(input.MouseMoved, 640, 400),
-		chromedp.ScrollIntoView("body"),
-		chromedp.WaitReady("body", chromedp.ByQuery),
-		chromedp.OuterHTML("html", &htmlContent),
-	}
-
-	var err error
-	for attempt := 1; attempt <= 3; attempt++ {
-		browserCtx, browserCancel := chromedp.NewContext(allocCtx)
-		defer browserCancel()
-
-		if err = chromedp.Run(browserCtx, actions...); err == nil {
-			break
-		}
-
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			break
-		}
-
-		time.Sleep(time.Duration(attempt*2) * time.Second)
-	}
-
-	if err != nil {
-		return nil, fmt.Errorf("не удалось загрузить страницу после 3 попыток: %w", err)
-	}
-
-	return []byte(htmlContent), nil
-}
-
-func shouldBlockRequest(url string) bool {
-	blockedPatterns := []string{
-		".png", ".jpg", ".jpeg", ".gif", ".webp",
-		".css", ".woff", ".woff2", ".ttf",
-		".mp4", ".avi", ".webm", ".mov",
-		"doubleclick.net", "googleadservices.com",
-		"analytics", "tracking", "metrics",
-	}
-
-	for _, pattern := range blockedPatterns {
-		if strings.Contains(url, pattern) {
-			return true
-		}
-	}
-	return false
-}
-
-func (bot *Bot) extractWithoutHeadless(articleURL string) ([]byte, error) {
-	jar, err := cookiejar.New(nil)
-	if err != nil {
-		return nil, fmt.Errorf("ошибка создания cookie jar: %w", err)
-	}
-
-	client := &http.Client{
-		Timeout: 15 * time.Second,
-		Jar:     jar,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			req.Header = via[0].Header.Clone()
-			return nil
+func NewWebServer(bot *Bot) *WebServer {
+	return &WebServer{
+		bot: bot,
+		upgrader: websocket.Upgrader{
+			CheckOrigin: func(r *http.Request) bool { return true },
 		},
+		clients: make(map[*WebClient]bool),
+	}
+}
+
+func (ws *WebServer) Start() {
+	r := mux.NewRouter()
+
+	// WebSocket endpoint
+	r.HandleFunc("/ws", ws.handleWebSocket)
+
+	// Login endpoint
+	r.HandleFunc("/login", ws.handleLogin).Methods("POST")
+
+	// Static files
+	r.PathPrefix("/").Handler(http.FileServer(http.Dir("./web")))
+
+	srv := &http.Server{
+		Addr:    fmt.Sprintf(":%d", ws.bot.conf.Web.Port),
+		Handler: r,
 	}
 
-	req, err := http.NewRequest("GET", articleURL, nil)
+	go func() {
+		log.Printf("Web server started on %d", ws.bot.conf.Web.Port)
+		if err := srv.ListenAndServe(); err != nil {
+			log.Printf("Web server error: %v", err)
+		}
+	}()
+
+	// Graceful shutdown handling would be added here
+}
+
+func (ws *WebServer) handleLogin(w http.ResponseWriter, r *http.Request) {
+	// Simple authentication
+	username := r.FormValue("username")
+	password := r.FormValue("password")
+
+	if username == ws.bot.conf.Web.Username && password == ws.bot.conf.Web.Password {
+		http.SetCookie(w, &http.Cookie{
+			Name:    "auth",
+			Value:   "authenticated",
+			Expires: time.Now().Add(24 * time.Hour),
+			Path:    "/",
+		})
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	w.WriteHeader(http.StatusUnauthorized)
+}
+
+func (ws *WebServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
+	// Check authentication
+	cookie, err := r.Cookie("auth")
+	if err != nil || cookie.Value != "authenticated" {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	conn, err := ws.upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		return nil, fmt.Errorf("ошибка создания запроса: %w", err)
+		log.Printf("WebSocket upgrade error: %v", err)
+		return
 	}
 
-	bot.setAdvancedHeaders(req)
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("ошибка загрузки страницы: %w", err)
+	client := &WebClient{
+		conn: conn,
+		send: make(chan WebMessage, 256),
 	}
-	defer resp.Body.Close()
+	ws.addClient(client)
 
-	var reader io.Reader
+	go client.writePump()
+	go client.readPump(ws)
+}
 
-	// Проверяем Content-Encoding и распаковываем при необходимости
-	switch resp.Header.Get("Content-Encoding") {
-	case "gzip":
-		reader, err = gzip.NewReader(resp.Body)
+func (ws *WebServer) addClient(client *WebClient) {
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+	ws.clients[client] = true
+	log.Printf("Web client connected")
+}
+
+func (ws *WebServer) removeClient(client *WebClient) {
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+	if _, ok := ws.clients[client]; ok {
+		delete(ws.clients, client)
+		close(client.send)
+		log.Printf("Web client disconnected")
+	}
+}
+
+func (ws *WebServer) broadcast(msg WebMessage) {
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+
+	for client := range ws.clients {
+		select {
+		case client.send <- msg:
+		default:
+			ws.removeClient(client)
+		}
+	}
+}
+
+func (c *WebClient) writePump() {
+	defer c.conn.Close()
+
+	for msg := range c.send {
+		err := c.conn.WriteJSON(msg)
 		if err != nil {
-			return nil, fmt.Errorf("ошибка создания gzip reader: %w", err)
+			break
 		}
-		defer reader.(*gzip.Reader).Close()
-	case "deflate":
-		reader = flate.NewReader(resp.Body)
-		defer reader.(io.ReadCloser).Close()
-	default:
-		reader = resp.Body
-	}
-
-	// Читаем тело ответа
-	bodyBytes, err := io.ReadAll(reader)
-	if err != nil {
-		return nil, fmt.Errorf("ошибка чтения тела ответа: %w", err)
-	}
-
-	// Проверяем, что это текст
-	contentType := resp.Header.Get("Content-Type")
-	if !strings.Contains(contentType, "text/html") && !strings.Contains(contentType, "text/plain") {
-		// Попробуем определить кодировку по содержимому
-		if !utf8.Valid(bodyBytes) {
-			return nil, fmt.Errorf("получены бинарные данные, не похожие на текст")
-		}
-	}
-
-	return bodyBytes, nil
-}
-
-func (bot *Bot) setAdvancedHeaders(req *http.Request) {
-	headers := map[string]string{
-		"User-Agent":                bot.getRandomUserAgent(),
-		"Accept":                    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-		"Accept-Language":           "ru-RU,ru;q=0.8,en-US;q=0.5,en;q=0.3",
-		"Accept-Encoding":           "gzip, deflate",
-		"Connection":                "keep-alive",
-		"Referer":                   "https://www.google.com/",
-		"DNT":                       "1",
-		"Upgrade-Insecure-Requests": "1",
-		"Sec-Fetch-Dest":            "document",
-		"Sec-Fetch-Mode":            "navigate",
-		"Sec-Fetch-Site":            "none",
-		"Sec-Fetch-User":            "?1",
-	}
-
-	for k, v := range headers {
-		req.Header.Set(k, v)
 	}
 }
 
-func (bot *Bot) extractCustomContent(doc *goquery.Document) (*domain.Article, error) {
-	// Сначала пробуем структурированный подход
-	if content := bot.extractStructuredContent(doc); content != nil {
-		return content, nil
-	}
+func (c *WebClient) readPump(ws *WebServer) {
+	defer func() {
+		ws.removeClient(c)
+		c.conn.Close()
+	}()
 
-	// Затем fallback-метод
-	content, err := bot.extractFallbackContent(doc)
-	if err != nil {
-		return nil, err
-	}
-
-	return &domain.Article{
-		Content: content,
-	}, nil
-}
-
-func (bot *Bot) extractStructuredContent(doc *goquery.Document) *domain.Article {
-	articleSelection := doc.Find("article, main, .article, .post, .content")
-	if articleSelection.Length() == 0 {
-		return nil
-	}
-
-	var title string
-	for _, selector := range []string{"h1", "h2", ".title", ".article-title"} {
-		if title == "" {
-			title = strings.TrimSpace(articleSelection.Find(selector).First().Text())
+	for {
+		_, msgBytes, err := c.conn.ReadMessage()
+		if err != nil {
+			break
 		}
-	}
 
-	content := strings.TrimSpace(articleSelection.Text())
-	content = strings.Join(strings.Fields(content), " ")
+		var msg WebMessage
+		if err := json.Unmarshal(msgBytes, &msg); err != nil {
+			continue
+		}
 
-	if len(content) < 100 || uint(len(content)) > bot.conf.Analysis.MaxContentSize {
-		return nil
-	}
-
-	return &domain.Article{
-		Title:   title,
-		Content: content,
+		switch msg.Type {
+		case "command":
+			ws.handleCommand(msg.Content)
+		}
 	}
 }
 
-func (bot *Bot) extractFallbackContent(doc *goquery.Document) (string, error) {
-	// Очистка документа
-	doc.Find("script, style, noscript, iframe, nav, footer").Each(func(i int, s *goquery.Selection) {
-		s.Remove()
-	})
+func (ws *WebServer) handleCommand(cmd string) {
+	log.Printf("Web command: %s", cmd)
 
-	// Поиск основного контента
-	mainContent := ""
-	doc.Find("p, div, article").Each(func(i int, s *goquery.Selection) {
-		if text := strings.TrimSpace(s.Text()); len(text) > len(mainContent) {
-			mainContent = text
-		}
-	})
-
-	if len(mainContent) < 500 {
-		mainContent = strings.TrimSpace(doc.Find("body").Text())
+	// Разделяем команду на части
+	parts := strings.Fields(cmd)
+	if len(parts) == 0 {
+		return
 	}
 
-	mainContent = strings.Join(strings.Fields(mainContent), " ")
-	if len(mainContent) < 100 {
-		if bot.conf.Debug {
-			log.Printf("Недостаточно текста: %s", mainContent)
-		}
-		return "", fmt.Errorf("недостаточно текста")
-	}
+	// Получаем имя команды (без слеша, если он есть)
+	commandName := strings.ToLower(strings.TrimPrefix(parts[0], "/"))
+	args := strings.Join(parts[1:], " ")
 
-	return mainContent, nil
-}
-
-func cleanContent(content string) string {
-	// 1. Удаляем все управляющие символы и непечатаемые символы
-	cleaned := strings.Map(func(r rune) rune {
-		if r == '\t' || r == '\n' || r == '\r' {
-			return ' ' // Заменяем на обычный пробел
-		}
-		if unicode.IsControl(r) || unicode.IsMark(r) {
-			return -1 // Удаляем
-		}
-		if r < 32 || r > 126 && r < 160 {
-			return -1 // Удаляем нестандартные символы
-		}
-		return r
-	}, content)
-
-	// 2. Заменяем различные варианты пробелов на обычный пробел
-	cleaned = regexp.MustCompile(`[\s\p{Zs}]+`).ReplaceAllString(cleaned, " ")
-
-	// 3. Удаляем лишние пробелы вокруг пунктуации
-	cleaned = regexp.MustCompile(`\s+([.,!?;:)]+)`).ReplaceAllString(cleaned, "$1")
-	cleaned = regexp.MustCompile(`([([{])\s+`).ReplaceAllString(cleaned, "$1")
-
-	// 4. Удаляем "мусорные" последовательности символов
-	cleaned = regexp.MustCompile(`[=+*_\-~]{3,}`).ReplaceAllString(cleaned, " ")   // Разделители
-	cleaned = regexp.MustCompile(`[\p{So}\p{Sk}]+`).ReplaceAllString(cleaned, " ") // Символы и модификаторы
-
-	// 5. Удаляем одиночные символы кроме букв и цифр
-	cleaned = regexp.MustCompile(`(^|\s)[^а-яА-Яa-zA-Z0-9](\s|$)`).ReplaceAllString(cleaned, " ")
-
-	// 6. Удаляем повторяющиеся пробелы
-	cleaned = regexp.MustCompile(` {2,}`).ReplaceAllString(cleaned, " ")
-
-	// 7. Удаляем пробелы в начале и конце
-	cleaned = strings.TrimSpace(cleaned)
-
-	// 8. Восстанавливаем стандартные кавычки
-	cleaned = strings.ReplaceAll(cleaned, "«", "\"")
-	cleaned = strings.ReplaceAll(cleaned, "»", "\"")
-	cleaned = strings.ReplaceAll(cleaned, "“", "\"")
-	cleaned = strings.ReplaceAll(cleaned, "”", "\"")
-
-	// 9. Удаляем оставшиеся одиночные специальные символы
-	cleaned = regexp.MustCompile(`\s[^а-яА-Яa-zA-Z0-9\s]\s`).ReplaceAllString(cleaned, " ")
-
-	return cleaned
-}
-
-type QueryResult struct {
-	Type    string
-	Content string
-}
-
-func (bot *Bot) getArticle(url string) (*domain.Article, error) {
-	art, err := bot.ExtractWebContent(url)
-	if err != nil {
-		return nil, err
-	}
-
-	art.Content = cleanContent(art.Content)
-
-	if bot.conf.Debug {
-		log.Printf("Заголовок: %s;\n Содержимое: %s",
-			art.Title,
-			art.Content,
-		)
-	}
-
-	// Ограничение размера контента
-	if uint(len([]rune(art.Content))) > bot.conf.Analysis.MaxContentSize {
-		art.Content = string([]rune(art.Content)[:bot.conf.Analysis.MaxContentSize])
-		if bot.conf.Debug {
-			log.Printf("Урезано до: %s\n", art.Content)
-		}
-	}
-
-	return art, nil
-}
-
-func (bot *Bot) analyzeArticle(url string) (*domain.Article, error) {
-	art, err := bot.getArticle(url)
-	if err != nil {
-		return nil, err
-	}
-
-	var wg sync.WaitGroup
-	results := make(chan QueryResult, 3)
-	errors := make(chan error, 3)
-
-	// Типы запросов
-	const (
-		QueryTitle       = "title"
-		QueryAffiliation = "affiliation"
-		QuerySentiment   = "sentiment"
-	)
-
-	needTitle := art.Title == ""
-	if needTitle {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			response, err := bot.queryTitle(art.Content)
+	// Ищем и вызываем команду
+	for _, command := range ws.bot.commands {
+		if command.Name == commandName {
+			// Вызываем команду и получаем результат
+			response, err := command.Call(args)
 			if err != nil {
-				errors <- fmt.Errorf("заголовок: %w", err)
+				ws.SendLog("Error executing command: " + err.Error())
 				return
 			}
-			results <- QueryResult{Type: QueryTitle, Content: response}
+			ws.SendAnalysisResult(response)
+			return
+		}
+	}
+
+	// Fallback для URL
+	if strings.HasPrefix(cmd, "http") {
+		do := ws.bot.CommandByName("do")
+		if do != nil {
+			// Для URL обрабатываем как команду "do"
+			response, err := do.Call(cmd)
+			if err != nil {
+				ws.SendLog("Error executing do command: " + err.Error())
+				return
+			}
+			ws.SendAnalysisResult(response)
+		}
+	}
+}
+
+// SendAnalysisResult sends analysis results to web clients
+func (ws *WebServer) SendAnalysisResult(result string) {
+	ws.broadcast(WebMessage{
+		Type:    "analysis",
+		Content: result,
+	})
+}
+
+// SendLog sends log messages to web clients
+func (ws *WebServer) SendLog(log string) {
+	ws.broadcast(WebMessage{
+		Type:    "log",
+		Content: log,
+	})
+}
+
+func recoveryMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if err := recover(); err != nil {
+				log.Printf("Panic recovered: %v", err)
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+			}
 		}()
-	}
-
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		response, err := bot.queryAffiliation(art.Content)
-		if err != nil {
-			errors <- fmt.Errorf("тема: %w", err)
-			return
-		}
-		results <- QueryResult{Type: QueryAffiliation, Content: response}
-	}()
-	go func() {
-		defer wg.Done()
-		response, err := bot.querySentiment(art.Content)
-		if err != nil {
-			errors <- fmt.Errorf("отношение: %w", err)
-			return
-		}
-		results <- QueryResult{Type: QuerySentiment, Content: response}
-	}()
-
-	// Обработка результатов
-	go func() {
-		wg.Wait()
-		close(results)
-		close(errors)
-	}()
-
-	// Собираем результаты
-	for res := range results {
-		switch res.Type {
-		case QueryTitle:
-			art.Title = res.Content
-		case QueryAffiliation:
-			art.Affiliation = res.Content
-		case QuerySentiment:
-			// Парсим структурированный ответ
-			parts := strings.SplitN(res.Content, "\n", 2)
-			if len(parts) > 0 {
-				art.Sentiment = extractSentiment(strings.TrimSpace(parts[0]))
-			}
-			if len(parts) > 1 {
-				art.Justification = strings.TrimSpace(parts[1])
-			}
-		}
-	}
-
-	// Собираем ошибки
-	for err := range errors {
-		art.Errors = append(art.Errors, err)
-	}
-
-	return art, nil
+		next.ServeHTTP(w, r)
+	})
 }

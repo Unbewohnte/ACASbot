@@ -5,17 +5,15 @@ import (
 	"Unbewohnte/ACASbot/internal/similarity"
 	"Unbewohnte/ACASbot/internal/spreadsheet"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"os"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
-	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/tealeg/xlsx"
 )
 
@@ -24,7 +22,7 @@ type Command struct {
 	Description string
 	Example     string
 	Group       string
-	Call        func(*tgbotapi.Message)
+	Call        func(string) (string, error)
 }
 
 func (bot *Bot) NewCommand(cmd Command) {
@@ -51,20 +49,13 @@ func constructCommandHelpMessage(command Command) string {
 	return commandHelp
 }
 
-func (bot *Bot) Help(message *tgbotapi.Message) {
-	parts := strings.Split(message.Text, " ")
-	if len(parts) >= 2 {
+func (bot *Bot) Help(args string) (string, error) {
+	parts := strings.Split(args, " ")
+	if len(parts) > 0 {
 		// Ответить лишь по конкретной команде
-		command := bot.CommandByName(parts[1])
+		command := bot.CommandByName(parts[0])
 		if command != nil {
-			helpMessage := constructCommandHelpMessage(*command)
-			msg := tgbotapi.NewMessage(
-				message.Chat.ID,
-				helpMessage,
-			)
-			msg.ParseMode = "Markdown"
-			bot.api.Send(msg)
-			return
+			return constructCommandHelpMessage(*command), nil
 		}
 	}
 
@@ -88,37 +79,20 @@ func (bot *Bot) Help(message *tgbotapi.Message) {
 		}
 	}
 
-	msg := tgbotapi.NewMessage(
-		message.Chat.ID,
-		helpMessage,
-	)
-	msg.ParseMode = "Markdown"
-	bot.api.Send(msg)
+	return helpMessage, nil
 }
 
-func (bot *Bot) ChangeObj(message *tgbotapi.Message) {
-	parts := strings.Split(strings.TrimSpace(message.Text), " ")
-	if len(parts) < 2 {
-		msg := tgbotapi.NewMessage(
-			message.Chat.ID,
-			"Имя объекта не указано",
-		)
-		msg.ReplyToMessageID = message.MessageID
-		bot.api.Send(msg)
-		return
+func (bot *Bot) ChangeObj(args string) (string, error) {
+	if args == "" {
+		return "", errors.New("имя объекта не указано")
 	}
 
-	bot.conf.Analysis.Object = strings.Join(parts[1:], " ")
-	msg := tgbotapi.NewMessage(
-		message.Chat.ID,
-		fmt.Sprintf("Объект сменен на \"%s\"", bot.conf.Analysis.Object),
-	)
-
-	msg.ReplyToMessageID = message.MessageID
-	bot.api.Send(msg)
+	bot.conf.Analysis.Object = args
 
 	// Обновляем конфигурационный файл
 	bot.conf.Update()
+
+	return fmt.Sprintf("Объект сменен на \"%s\"", bot.conf.Analysis.Object), nil
 }
 
 func (bot *Bot) formatAnalysisResult(art *domain.Article) string {
@@ -162,75 +136,51 @@ func (bot *Bot) formatAnalysisResult(art *domain.Article) string {
 	return response.String()
 }
 
-func (bot *Bot) Do(message *tgbotapi.Message) {
-	parts := strings.Split(message.Text, " ")
-	if len(parts) < 2 {
-		bot.sendError(message.Chat.ID, "Вы не указали URL", message.MessageID)
-		return
-	}
-	url := parts[1]
-	if !strings.HasPrefix(url, "http") {
-		bot.sendError(message.Chat.ID, "Пожалуйста, отправьте действительный URL, начинающийся с http/https", message.MessageID)
-		return
+func (bot *Bot) Do(args string) (string, error) {
+	if args == "" {
+		return "", errors.New("вы не указали URL")
 	}
 
-	processingMsg := tgbotapi.NewMessage(message.Chat.ID, "🔍 Анализирую статью...")
-	processingMsg.ReplyToMessageID = message.MessageID
-	sentMsg, _ := bot.api.Send(processingMsg)
-	defer func() {
-		deleteMsg := tgbotapi.NewDeleteMessage(message.Chat.ID, sentMsg.MessageID)
-		bot.api.Send(deleteMsg)
-	}()
+	if !strings.HasPrefix(args, "http") {
+		return "", errors.New("пожалуйста, отправьте действительный URL, начинающийся с http/https")
+	}
+
+	url := args
 
 	// Анализируем статью
 	art, err := bot.analyzeArticle(url)
 	if err != nil {
-		bot.sendError(message.Chat.ID, "Ошибка обработки страницы: "+err.Error(), message.MessageID)
-		return
+		return "", fmt.Errorf("ошибка обработки страницы: %w", err)
 	}
 	if art.PublishedAt == 0 {
 		now := time.Now()
 		art.PublishedAt = now.Unix()
 	}
 
-	// Проверка на похожесть
-	userConfig, err := bot.conf.GetDB().GetUserConfig(message.From.ID)
-	if err != nil {
-		bot.sendError(message.Chat.ID, "Ошибка загрузки ваших настроек", message.MessageID)
-		return
-	}
-
 	// Проверка точного дубликата
-	if existingArticle, err := bot.conf.GetDB().GetExactDuplicate(art.Content); err != nil {
-		bot.sendError(message.Chat.ID, "Ошибка проверки дубликатов", message.MessageID)
-		return
-	} else if existingArticle != nil {
-		bot.notifyExactDuplicate(message, existingArticle)
-		return
+	if existingArticle, err := bot.conf.GetDB().GetExactDuplicate(art.Content); err == nil && existingArticle != nil {
+		return bot.notifyExactDuplicate(existingArticle), nil
 	}
 
 	// Получение вектора
 	embedding, err := bot.model.GetEmbedding(art.Content)
 	if err != nil {
-		log.Printf("Не получилось bot.model.GetEmbedding(art.Content): %s", err)
-		bot.sendError(message.Chat.ID, "Ошибка векторизации", message.MessageID)
-		return
+		return "", errors.New("ошибка векторизации")
 	}
 
-	// Поиск схожих статей ТОЛЬКО СРЕДИ ОРИГИНАЛЬНЫХ (citations >= 1)
+	// Поиск схожих статей
 	similar, err := bot.conf.GetDB().FindSimilar(
 		embedding,
-		userConfig.VectorSimilarityThreshold,
-		userConfig.DaysLookback,
+		bot.conf.Analysis.VectorSimilarityThreshold,
+		uint(bot.conf.Analysis.DaysLookback),
 	)
 	if err != nil {
-		bot.sendError(message.Chat.ID, "Ошибка нахождения схожих статей", message.MessageID)
-		return
+		return "", errors.New("ошибка нахождения схожих статей")
 	}
 
 	var verified []domain.Article
 	if len(similar) > 0 {
-		composite := similarity.NewCompositeSimilarity(userConfig.CompositeVectorWeight)
+		composite := similarity.NewCompositeSimilarity(bot.conf.Analysis.CompositeVectorWeight)
 		for _, candidate := range similar {
 			score, err := composite.Compare(
 				art.Content,
@@ -238,19 +188,18 @@ func (bot *Bot) Do(message *tgbotapi.Message) {
 				embedding,
 				candidate.Embedding,
 			)
-			if err == nil && score >= userConfig.FinalSimilarityThreshold {
+			if err == nil && score >= bot.conf.Analysis.FinalSimilarityThreshold {
 				candidate.TrueSimilarity = score
 				verified = append(verified, candidate)
 
 				// Добавляем ссылку на текущую статью в оригинальную
 				if err := bot.conf.GetDB().AddSimilarURL(candidate.ID, url); err != nil {
-					log.Printf("Ошибка добавления URL в оригинальную статью: %s", err)
+					log.Printf("ошибка добавления URL в оригинальную статью: %v", err)
 				}
 
 				// Инкремент цитирований
-				err = bot.conf.GetDB().IncrementCitation(candidate.ID)
-				if err != nil {
-					log.Printf("Ошибка инкремента количества цитирований: %s", err)
+				if err := bot.conf.GetDB().IncrementCitation(candidate.ID); err != nil {
+					log.Printf("ошибка инкремента количества цитирований: %v", err)
 				}
 			}
 		}
@@ -262,9 +211,7 @@ func (bot *Bot) Do(message *tgbotapi.Message) {
 	// Сохранение статьи в базу
 	if len(verified) == 0 || bot.conf.Analysis.SaveSimilarArticles {
 		if err := bot.saveNewArticle(art, embedding, url); err != nil {
-			bot.sendError(message.Chat.ID, "Ошибка сохранения", message.MessageID)
-			log.Printf("Ошибка сохранения: %s", err)
-			return
+			return "", errors.New("ошибка сохранения")
 		}
 	}
 
@@ -277,75 +224,43 @@ func (bot *Bot) Do(message *tgbotapi.Message) {
 		fullMessage += "\n\n" + duplicatesText
 	}
 
-	msg := tgbotapi.NewMessage(message.Chat.ID, fullMessage)
-	msg.ParseMode = "Markdown"
-	msg.ReplyToMessageID = message.MessageID
-	bot.api.Send(msg)
-
-	// Дальнейшие действия (Google Sheets, локальное сохранение и т.д.)
-	if bot.conf.Debug {
-		log.Println(msg.Text)
-	}
+	// Обработка Google Sheets
 	if bot.conf.Sheets.PushToGoogleSheet {
 		if err := bot.sheet.AddAnalysisResultWithRetry(art, 3); err != nil {
-			log.Printf("Ошибка добавления в Google Sheet: %v", err)
-			msg := tgbotapi.NewMessage(message.Chat.ID, "❌ Ошибка внесения изменений в онлайн таблицу: "+err.Error())
-			bot.api.Send(msg)
+			log.Printf("ошибка добавления в Google Sheet: %v", err)
+			fullMessage += "\n\n❌ ошибка внесения изменений в онлайн таблицу: " + err.Error()
 		} else {
-			msg := tgbotapi.NewMessage(message.Chat.ID, "💾 Запись успешно добавлена в онлайн таблицу!")
-			bot.api.Send(msg)
+			fullMessage += "\n\n💾 запись успешно добавлена в онлайн таблицу!"
 		}
 	}
+
+	return fullMessage, nil
 }
 
-func (bot *Bot) About(message *tgbotapi.Message) {
-	msg := tgbotapi.NewMessage(
-		message.Chat.ID,
-		`ACAS bot (Article Context And Sentiment bot).
+func (bot *Bot) About(args string) (string, error) {
+	return `ACAS bot (Article Context And Sentiment bot).
 
 Бот для анализа статей на отношение к определенной объекта/личности, а также получения некоторых метаданных: заголовка и краткого описания.
 Результаты анализа могут автоматически добавляться в Google таблицу, локальную таблицу при настройке.
 
 Source: https://github.com/Unbewohnte/ACASbot
 Лицензия: GPLv3
-`,
-	)
-
-	bot.api.Send(msg)
+`, nil
 }
 
-func (bot *Bot) AddUser(message *tgbotapi.Message) {
-	parts := strings.Split(strings.TrimSpace(message.Text), " ")
-	if len(parts) < 2 {
-		msg := tgbotapi.NewMessage(
-			message.Chat.ID,
-			"ID пользователя не указан",
-		)
-		msg.ReplyToMessageID = message.MessageID
-		bot.api.Send(msg)
-		return
+func (bot *Bot) AddUser(args string) (string, error) {
+	if args == "" {
+		return "", errors.New("ID пользователя не указан")
 	}
 
-	id, err := strconv.ParseInt(parts[1], 10, 64)
+	id, err := strconv.ParseInt(args, 10, 64)
 	if err != nil {
-		msg := tgbotapi.NewMessage(
-			message.Chat.ID,
-			"Неверный ID пользователя",
-		)
-		msg.ReplyToMessageID = message.MessageID
-		bot.api.Send(msg)
-		return
+		return "", errors.New("неверный ID пользователя")
 	}
 
 	for _, allowedID := range bot.conf.Telegram.AllowedUserIDs {
 		if id == allowedID {
-			msg := tgbotapi.NewMessage(
-				message.Chat.ID,
-				"Этот пользователь уже есть в списке разрешенных.",
-			)
-			msg.ReplyToMessageID = message.MessageID
-			bot.api.Send(msg)
-			return
+			return "Этот пользователь уже есть в списке разрешенных.", nil
 		}
 	}
 
@@ -354,328 +269,180 @@ func (bot *Bot) AddUser(message *tgbotapi.Message) {
 	// Сохраним в файл
 	bot.conf.Update()
 
-	msg := tgbotapi.NewMessage(
-		message.Chat.ID,
-		"Пользователь успешно добавлен!",
-	)
-	msg.ReplyToMessageID = message.MessageID
-	bot.api.Send(msg)
+	return "Пользователь успешно добавлен", nil
 }
 
-func (bot *Bot) TogglePublicity(message *tgbotapi.Message) {
+func (bot *Bot) TogglePublicity(args string) (string, error) {
 	if bot.conf.Telegram.Public {
 		bot.conf.Telegram.Public = false
-		bot.api.Send(
-			tgbotapi.NewMessage(message.Chat.ID, "Доступ к боту теперь только у избранных."),
-		)
+		bot.conf.Update()
+		return "Доступ к боту теперь только у избранных.", nil
 	} else {
 		bot.conf.Telegram.Public = true
-		bot.api.Send(
-			tgbotapi.NewMessage(message.Chat.ID, "Доступ к боту теперь у всех."),
-		)
+		bot.conf.Update()
+		return "Доступ к боту теперь у всех.", nil
 	}
-
-	// Обновляем конфигурационный файл
-	bot.conf.Update()
 }
-
-func (bot *Bot) RemoveUser(message *tgbotapi.Message) {
-	parts := strings.Split(strings.TrimSpace(message.Text), " ")
-	if len(parts) < 2 {
-		msg := tgbotapi.NewMessage(
-			message.Chat.ID,
-			"ID пользователя не указан",
-		)
-		msg.ReplyToMessageID = message.MessageID
-		bot.api.Send(msg)
-		return
+func (bot *Bot) RemoveUser(args string) (string, error) {
+	if args == "" {
+		return "", errors.New("ID пользователя не указан")
 	}
 
-	id, err := strconv.ParseInt(parts[1], 10, 64)
+	id, err := strconv.ParseInt(args, 10, 64)
 	if err != nil {
-		msg := tgbotapi.NewMessage(
-			message.Chat.ID,
-			"Неверный ID пользователя",
-		)
-		msg.ReplyToMessageID = message.MessageID
-		bot.api.Send(msg)
-		return
+		return "", errors.New("неверный ID пользователя")
 	}
 
-	tmp := bot.conf.Telegram.AllowedUserIDs
-	bot.conf.Telegram.AllowedUserIDs = []int64{}
-	for _, allowedID := range tmp {
+	found := false
+	newAllowedUserIDs := []int64{}
+	for _, allowedID := range bot.conf.Telegram.AllowedUserIDs {
 		if allowedID == id {
+			found = true
 			continue
 		}
-
-		bot.conf.Telegram.AllowedUserIDs = append(bot.conf.Telegram.AllowedUserIDs, allowedID)
+		newAllowedUserIDs = append(newAllowedUserIDs, allowedID)
 	}
 
-	// Сохраним в файл
+	if !found {
+		return "", errors.New("пользователь не найден в списке разрешенных")
+	}
+
+	bot.conf.Telegram.AllowedUserIDs = newAllowedUserIDs
 	bot.conf.Update()
 
-	msg := tgbotapi.NewMessage(
-		message.Chat.ID,
-		"Пользователь успешно удален!",
-	)
-	msg.ReplyToMessageID = message.MessageID
-	bot.api.Send(msg)
+	return "Пользователь успешно удален!", nil
 }
 
-func (bot *Bot) ChangeMaxContentSize(message *tgbotapi.Message) {
-	parts := strings.Split(message.Text, " ")
-	if len(parts) < 2 {
-		msg := tgbotapi.NewMessage(
-			message.Chat.ID,
-			"Не указано новое значение.",
-		)
-		msg.ReplyToMessageID = message.MessageID
-		bot.api.Send(msg)
-		return
+func (bot *Bot) ChangeMaxContentSize(args string) (string, error) {
+	if args == "" {
+		return "", errors.New("не указано новое значение")
 	}
 
-	newMaxContentSize, err := strconv.ParseInt(parts[1], 10, 64)
+	newMaxContentSize, err := strconv.ParseUint(args, 10, 64)
 	if err != nil {
-		msg := tgbotapi.NewMessage(
-			message.Chat.ID,
-			"Указано некорректное значение.",
-		)
-		msg.ReplyToMessageID = message.MessageID
-		bot.api.Send(msg)
-		return
+		return "", errors.New("указано некорректное значение")
 	}
 
 	if newMaxContentSize <= 0 {
-		msg := tgbotapi.NewMessage(
-			message.Chat.ID,
-			"Указано некорректное значение. Необходимо указать значение > 0",
-		)
-		msg.ReplyToMessageID = message.MessageID
-		bot.api.Send(msg)
-		return
+		return "", errors.New("указано некорректное значение. Необходимо указать значение > 0")
 	}
 
 	bot.conf.Analysis.MaxContentSize = uint(newMaxContentSize)
-
-	msg := tgbotapi.NewMessage(
-		message.Chat.ID,
-		"Значение успешно изменено.",
-	)
-	msg.ReplyToMessageID = message.MessageID
-	bot.api.Send(msg)
-
-	// Обновляем конфигурационный файл
 	bot.conf.Update()
+
+	return "Значение лимита символов текста статьи для анализа успешно изменено на " +
+		strconv.FormatUint(newMaxContentSize, 10) + " символов.", nil
 }
 
-func (bot *Bot) PrintConfig(message *tgbotapi.Message) {
-	userConfig, err := bot.conf.GetDB().GetUserConfig(message.From.ID)
-	if err != nil {
-		log.Printf("%s", err)
-		bot.sendError(message.Chat.ID, "Ошибка загрузки ваших настроек", message.MessageID)
-		return
-	}
+func (bot *Bot) PrintConfig(args string) (string, error) {
+	var response strings.Builder
 
-	var response string = ""
+	response.WriteString("*Нынешняя конфигурация*: \n")
+	response.WriteString("\n*[АНАЛИЗ]*\n")
+	response.WriteString(fmt.Sprintf("*Запоминать статьи на*: `%v` дней\n", bot.conf.Analysis.DaysLookback))
+	response.WriteString(fmt.Sprintf("*Лимит символов текста статьи для анализа*: `%v`\n", bot.conf.Analysis.MaxContentSize))
+	response.WriteString(fmt.Sprintf("*Порог векторного сходства*: `%v` (%v%%)\n",
+		bot.conf.Analysis.VectorSimilarityThreshold,
+		bot.conf.Analysis.VectorSimilarityThreshold*100.0))
+	response.WriteString(fmt.Sprintf("*Веса композитного сходства*: `%.2f` (Векторный: %.2f%%; Текстовый: %.2f%%)\n",
+		bot.conf.Analysis.CompositeVectorWeight,
+		bot.conf.Analysis.CompositeVectorWeight*100.0,
+		(1.0-bot.conf.Analysis.CompositeVectorWeight)*100.0))
+	response.WriteString(fmt.Sprintf("*Конечный порог сходства*: `%v` (%v%%)\n",
+		bot.conf.Analysis.FinalSimilarityThreshold,
+		bot.conf.Analysis.FinalSimilarityThreshold*100.0))
+	response.WriteString(fmt.Sprintf("*Объект*: `%v`\n", bot.conf.Analysis.Object))
+	response.WriteString(fmt.Sprintf("*Метаданные объекта*: `%v`\n", bot.conf.Analysis.ObjectMetadata))
+	response.WriteString(fmt.Sprintf("*Сохранять похожие статьи*: `%v`\n", bot.conf.Analysis.SaveSimilarArticles))
 
-	response += "*Нынешняя конфигурация*: \n"
-	response += "\n*[АНАЛИЗ]*\n"
-	response += fmt.Sprintf("*Запоминать статьи на*: `%v` дней\n", userConfig.DaysLookback)
-	response += fmt.Sprintf("*Лимит символов текста статьи для анализа*: `%v`\n", bot.conf.Analysis.MaxContentSize)
-	response += fmt.Sprintf("*Порог векторного сходства*: `%v` (%v%%)\n",
-		userConfig.VectorSimilarityThreshold,
-		userConfig.VectorSimilarityThreshold*100.0,
-	)
-	response += fmt.Sprintf("*Веса композитного сходства*: `%.2f` (Векторный: %.2f%%; Текстовый: %.2f%%)\n",
-		userConfig.CompositeVectorWeight,
-		userConfig.CompositeVectorWeight*100.0,
-		(1.0-userConfig.CompositeVectorWeight)*100.0,
-	)
-	response += fmt.Sprintf("*Конечный порог сходства*: `%v` (%v%%)\n",
-		userConfig.FinalSimilarityThreshold,
-		userConfig.FinalSimilarityThreshold*100.0,
-	)
-	response += fmt.Sprintf("*Объект*: `%v`\n", bot.conf.Analysis.Object)
-	response += fmt.Sprintf("*Метаданные объекта*: `%v`\n", bot.conf.Analysis.ObjectMetadata)
-	response += fmt.Sprintf("*Лимит символов текста статьи для анализа*: `%v`\n", bot.conf.Analysis.MaxContentSize)
-	response += "\n*[ОБЩЕЕ]*:\n"
-	response += fmt.Sprintf("*Общедоступный?*: `%v`\n", bot.conf.Telegram.Public)
-	response += fmt.Sprintf("*Разрешенные пользователи*: `%+v`\n", bot.conf.Telegram.AllowedUserIDs)
-	response += "\n*[LLM]*:\n"
-	response += fmt.Sprintf("*LLM*: `%v`\n", bot.conf.Ollama.GeneralModel)
-	response += fmt.Sprintf("*Эмбеддинговая LLM*: `%v`\n", bot.conf.Ollama.EmbeddingModel)
-	response += fmt.Sprintf("*Временной лимит на ответ LLM*: `%v` секунд\n", bot.conf.Ollama.QueryTimeoutSeconds)
-	response += fmt.Sprintf("*Промпт заголовка*: `%v`\n", bot.conf.Ollama.Prompts.Title)
-	response += fmt.Sprintf("*Промпт связи с объектом*: `%v`\n", bot.conf.Ollama.Prompts.Affiliation)
-	response += fmt.Sprintf("*Промпт отношения к объекту*: `%v`\n", bot.conf.Ollama.Prompts.Sentiment)
-	response += "\n*[ТАБЛИЦЫ]*:\n"
-	response += fmt.Sprintf("*Отправлять результат анализа в Google таблицу?*: `%v`\n", bot.conf.Sheets.PushToGoogleSheet)
-	response += fmt.Sprintf("*Наименование листа таблицы*: `%v`\n", bot.conf.Sheets.Google.Config.SheetName)
-	response += fmt.Sprintf("*ID Google таблицы*: `%v`\n", bot.conf.Sheets.Google.Config.SpreadsheetID)
+	response.WriteString("\n*[ОБЩЕЕ]*:\n")
+	response.WriteString(fmt.Sprintf("*Общедоступный?*: `%v`\n", bot.conf.Telegram.Public))
+	response.WriteString(fmt.Sprintf("*Разрешенные пользователи*: `%+v`\n", bot.conf.Telegram.AllowedUserIDs))
 
-	msg := tgbotapi.NewMessage(
-		message.Chat.ID,
-		response,
-	)
-	msg.ParseMode = "Markdown"
-	msg.ReplyToMessageID = message.MessageID
-	bot.api.Send(msg)
+	response.WriteString("\n*[LLM]*:\n")
+	response.WriteString(fmt.Sprintf("*LLM*: `%v`\n", bot.conf.Ollama.GeneralModel))
+	response.WriteString(fmt.Sprintf("*Эмбеддинговая LLM*: `%v`\n", bot.conf.Ollama.EmbeddingModel))
+	response.WriteString(fmt.Sprintf("*Временной лимит на ответ LLM*: `%v` секунд\n", bot.conf.Ollama.QueryTimeoutSeconds))
+	response.WriteString(fmt.Sprintf("*Промпт заголовка*: `%v`\n", bot.conf.Ollama.Prompts.Title))
+	response.WriteString(fmt.Sprintf("*Промпт связи с объектом*: `%v`\n", bot.conf.Ollama.Prompts.Affiliation))
+	response.WriteString(fmt.Sprintf("*Промпт отношения к объекту*: `%v`\n", bot.conf.Ollama.Prompts.Sentiment))
+
+	response.WriteString("\n*[ТАБЛИЦЫ]*:\n")
+	response.WriteString(fmt.Sprintf("*Отправлять результат анализа в Google таблицу?*: `%v`\n", bot.conf.Sheets.PushToGoogleSheet))
+	response.WriteString(fmt.Sprintf("*Наименование листа таблицы*: `%v`\n", bot.conf.Sheets.Google.Config.SheetName))
+	response.WriteString(fmt.Sprintf("*ID Google таблицы*: `%v`\n", bot.conf.Sheets.Google.Config.SpreadsheetID))
+
+	return response.String(), nil
 }
 
-func (bot *Bot) ChangeSpreadhseetID(message *tgbotapi.Message) {
-	parts := strings.Split(message.Text, " ")
-	if len(parts) < 2 {
-		msg := tgbotapi.NewMessage(
-			message.Chat.ID,
-			"Не указано новое значение.",
-		)
-		msg.ReplyToMessageID = message.MessageID
-		bot.api.Send(msg)
-		return
+func (bot *Bot) ChangeSpreadsheetID(args string) (string, error) {
+	if args == "" {
+		return "", errors.New("не указано новое значение")
 	}
 
-	bot.conf.Sheets.Google.Config.SpreadsheetID = parts[1]
+	bot.conf.Sheets.Google.Config.SpreadsheetID = args
 	if bot.sheet != nil {
 		bot.sheet.SpreadsheetID = bot.conf.Sheets.Google.Config.SpreadsheetID
 	}
 
-	msg := tgbotapi.NewMessage(
-		message.Chat.ID,
-		"Значение успешно изменено.",
-	)
-	msg.ReplyToMessageID = message.MessageID
-	bot.api.Send(msg)
-
-	// Обновляем конфигурационный файл
 	bot.conf.Update()
+
+	return "ID Google таблицы успешно изменен на: " + args, nil
 }
 
-func (bot *Bot) ChangeSheetName(message *tgbotapi.Message) {
-	parts := strings.Split(message.Text, " ")
-	if len(parts) < 2 {
-		msg := tgbotapi.NewMessage(
-			message.Chat.ID,
-			"Не указано новое имя.",
-		)
-		msg.ReplyToMessageID = message.MessageID
-		bot.api.Send(msg)
-		return
+func (bot *Bot) ChangeSheetName(args string) (string, error) {
+	if args == "" {
+		return "", errors.New("не указано новое имя")
 	}
 
-	newName, _ := strings.CutPrefix(message.Text, parts[0])
-	bot.conf.Sheets.Google.Config.SheetName = strings.TrimSpace(newName)
+	bot.conf.Sheets.Google.Config.SheetName = args
 	if bot.sheet != nil {
 		bot.sheet.SheetName = bot.conf.Sheets.Google.Config.SheetName
 	}
 
-	msg := tgbotapi.NewMessage(
-		message.Chat.ID,
-		"Имя успешно изменено.",
-	)
-	msg.ReplyToMessageID = message.MessageID
-	bot.api.Send(msg)
-
-	// Обновляем конфигурационный файл
 	bot.conf.Update()
+
+	return "Имя листа Google таблицы успешно изменено на: " + args, nil
 }
 
-func (bot *Bot) ChangeQueryTimeout(message *tgbotapi.Message) {
-	parts := strings.Split(message.Text, " ")
-	if len(parts) < 2 {
-		msg := tgbotapi.NewMessage(
-			message.Chat.ID,
-			"Не указано количество секунд.",
-		)
-		msg.ReplyToMessageID = message.MessageID
-		bot.api.Send(msg)
-		return
+func (bot *Bot) ChangeQueryTimeout(args string) (string, error) {
+	if args == "" {
+		return "", errors.New("не указано количество секунд")
 	}
 
-	timeoutSeconds, err := strconv.ParseUint(parts[1], 10, 64)
+	timeoutSeconds, err := strconv.ParseUint(args, 10, 64)
 	if err != nil {
-		msg := tgbotapi.NewMessage(
-			message.Chat.ID,
-			"Неверное значение количества секунд.",
-		)
-		msg.ReplyToMessageID = message.MessageID
-		bot.api.Send(msg)
-		return
+		return "", errors.New("неверное значение количества секунд")
 	}
 
 	bot.conf.Ollama.QueryTimeoutSeconds = uint(timeoutSeconds)
 	bot.model.TimeoutSeconds = bot.conf.Ollama.QueryTimeoutSeconds
 
-	msg := tgbotapi.NewMessage(
-		message.Chat.ID,
-		"Время таймаута запросов к LLM успешно изменено.",
-	)
-	msg.ReplyToMessageID = message.MessageID
-	bot.api.Send(msg)
-
-	// Обновляем конфигурационный файл
 	bot.conf.Update()
-}
 
-func (bot *Bot) GeneralQuery(message *tgbotapi.Message) {
-	parts := strings.Split(message.Text, " ")
-	if len(parts) < 2 {
-		msg := tgbotapi.NewMessage(
-			message.Chat.ID,
-			"Не указан запрос.",
-		)
-		msg.ReplyToMessageID = message.MessageID
-		bot.api.Send(msg)
-		return
+	return fmt.Sprintf("Время таймаута запросов к LLM успешно изменено на %d секунд", timeoutSeconds), nil
+}
+func (bot *Bot) GeneralQuery(args string) (string, error) {
+	if args == "" {
+		return "", errors.New("не указан запрос")
 	}
 
-	query := strings.Join(parts[1:], " ")
-	answer, err := bot.model.Query(query)
+	answer, err := bot.model.Query(args)
 	if err != nil {
-		msg := tgbotapi.NewMessage(
-			message.Chat.ID,
-			"Не удалось ответить на запрос.",
-		)
-		msg.ReplyToMessageID = message.MessageID
-		bot.api.Send(msg)
-		return
+		return "", fmt.Errorf("не удалось ответить на запрос: %w", err)
 	}
 
-	msg := tgbotapi.NewMessage(
-		message.Chat.ID,
-		answer,
-	)
-	msg.ReplyToMessageID = message.MessageID
-	bot.api.Send(msg)
-
-	log.Printf("Ответ: %s", msg.Text)
+	return answer, nil
 }
-
-func (bot *Bot) SetObjectData(message *tgbotapi.Message) {
-	parts := strings.Split(message.Text, " ")
-	if len(parts) < 2 {
-		msg := tgbotapi.NewMessage(
-			message.Chat.ID,
-			"Не указана дополнительная информация об объекте.",
-		)
-		msg.ReplyToMessageID = message.MessageID
-		bot.api.Send(msg)
-		return
+func (bot *Bot) SetObjectData(args string) (string, error) {
+	if args == "" {
+		return "", errors.New("не указана дополнительная информация об объекте")
 	}
 
-	objData, _ := strings.CutPrefix(message.Text, parts[0])
-
-	bot.conf.Analysis.ObjectMetadata = strings.TrimSpace(objData)
-
-	msg := tgbotapi.NewMessage(
-		message.Chat.ID,
-		"Информация успешно добавлена.",
-	)
-	msg.ReplyToMessageID = message.MessageID
-	bot.api.Send(msg)
-
-	// Обновляем конфигурационный файл
+	bot.conf.Analysis.ObjectMetadata = strings.TrimSpace(args)
 	bot.conf.Update()
+
+	return "Информация об объекте успешно обновлена", nil
 }
 
 type promptType string
@@ -686,63 +453,42 @@ const (
 	PROMPT_SENTIMENT   promptType = "sentiment"
 )
 
-func (bot *Bot) setPrompt(message *tgbotapi.Message, promptType promptType) {
-	parts := strings.Split(message.Text, " ")
-	if len(parts) < 2 {
-		msg := tgbotapi.NewMessage(
-			message.Chat.ID,
-			"Не указан новый промпт.",
-		)
-		msg.ReplyToMessageID = message.MessageID
-		bot.api.Send(msg)
-		return
+func (bot *Bot) setPrompt(args string, promptType promptType) (string, error) {
+	if args == "" {
+		return "", errors.New("не указан новый промпт")
 	}
-
-	prompt, _ := strings.CutPrefix(message.Text, parts[0])
 
 	switch promptType {
 	case PROMPT_TITLE:
-		bot.conf.Ollama.Prompts.Title = prompt
+		bot.conf.Ollama.Prompts.Title = args
 	case PROMPT_AFFILIATION:
-		bot.conf.Ollama.Prompts.Affiliation = prompt
+		bot.conf.Ollama.Prompts.Affiliation = args
 	case PROMPT_SENTIMENT:
-		bot.conf.Ollama.Prompts.Sentiment = prompt
+		bot.conf.Ollama.Prompts.Sentiment = args
 	default:
-		return
+		return "", errors.New("неизвестный тип промпта")
 	}
 
-	msg := tgbotapi.NewMessage(
-		message.Chat.ID,
-		"Новый промпт успешно применен.",
-	)
-	msg.ReplyToMessageID = message.MessageID
-	bot.api.Send(msg)
-
-	// Обновляем конфигурационный файл
 	bot.conf.Update()
+
+	return "Новый промпт успешно применен", nil
 }
 
-func (bot *Bot) SetAffiliationPrompt(message *tgbotapi.Message) {
-	bot.setPrompt(message, PROMPT_AFFILIATION)
+func (bot *Bot) SetAffiliationPrompt(args string) (string, error) {
+	return bot.setPrompt(args, PROMPT_AFFILIATION)
 }
 
-func (bot *Bot) SettTitlePrompt(message *tgbotapi.Message) {
-	bot.setPrompt(message, PROMPT_TITLE)
+func (bot *Bot) SetTitlePrompt(args string) (string, error) {
+	return bot.setPrompt(args, PROMPT_TITLE)
 }
 
-func (bot *Bot) SetSentimentPrompt(message *tgbotapi.Message) {
-	bot.setPrompt(message, PROMPT_SENTIMENT)
+func (bot *Bot) SetSentimentPrompt(args string) (string, error) {
+	return bot.setPrompt(args, PROMPT_SENTIMENT)
 }
-
-func (bot *Bot) ListModels(message *tgbotapi.Message) {
+func (bot *Bot) ListModels(args string) (string, error) {
 	models, err := bot.model.ListModels()
 	if err != nil {
-		errorMsg := tgbotapi.NewMessage(
-			message.Chat.ID,
-			"Не удалось получить список локальных моделей: "+err.Error(),
-		)
-		bot.api.Send(errorMsg)
-		return
+		return "", fmt.Errorf("не удалось получить список локальных моделей: %w", err)
 	}
 
 	response := "Доступные модели:\n"
@@ -755,454 +501,258 @@ func (bot *Bot) ListModels(message *tgbotapi.Message) {
 	}
 	response += fmt.Sprintf("\nТекущая:\n `%s`\n", bot.model.ModelName)
 
-	msg := tgbotapi.NewMessage(
-		message.Chat.ID,
-		response,
-	)
-	msg.ParseMode = "Markdown"
-	bot.api.Send(msg)
+	return response, nil
 }
-
-func (bot *Bot) SetModel(message *tgbotapi.Message) {
-	parts := strings.Split(message.Text, " ")
-	if len(parts) < 2 {
-		msg := tgbotapi.NewMessage(
-			message.Chat.ID,
-			"Не указано имя модели.",
-		)
-		msg.ReplyToMessageID = message.MessageID
-		bot.api.Send(msg)
-		return
+func (bot *Bot) SetModel(args string) (string, error) {
+	if args == "" {
+		return "", errors.New("не указано имя модели")
 	}
 
-	newModel, _ := strings.CutPrefix(message.Text, parts[0])
-	newModel = strings.TrimSpace(newModel)
-
+	newModel := strings.TrimSpace(args)
 	availableModels, err := bot.model.ListModels()
 	if err != nil {
-		errorMsg := tgbotapi.NewMessage(
-			message.Chat.ID,
-			"Не удалось получить список локальных моделей: "+err.Error(),
-		)
-		bot.api.Send(errorMsg)
-		return
+		return "", fmt.Errorf("не удалось получить список локальных моделей: %w", err)
 	}
 
 	for _, availableModel := range availableModels {
 		if availableModel.Name == newModel {
 			bot.model.ModelName = newModel
 			bot.conf.Ollama.GeneralModel = newModel
-
-			msg := tgbotapi.NewMessage(
-				message.Chat.ID,
-				fmt.Sprintf("Модель успешно сменена на \"%s\"", bot.model.ModelName),
-			)
-			bot.api.Send(msg)
-
 			bot.conf.Update()
-			return
+			return fmt.Sprintf("Модель успешно сменена на \"%s\"", bot.model.ModelName), nil
 		}
 	}
 
-	errorMsg := tgbotapi.NewMessage(
-		message.Chat.ID,
-		fmt.Sprintf("Такой модели не существует, оставлена \"%s\"", bot.model.ModelName),
-	)
-	bot.api.Send(errorMsg)
+	return fmt.Sprintf("Такой модели не существует, оставлена \"%s\"", bot.model.ModelName), nil
 }
 
-func (bot *Bot) ToggleSaveSimilar(message *tgbotapi.Message) {
+func (bot *Bot) ToggleSaveSimilar(args string) (string, error) {
 	if bot.conf.Analysis.SaveSimilarArticles {
 		bot.conf.Analysis.SaveSimilarArticles = false
-		bot.api.Send(
-			tgbotapi.NewMessage(message.Chat.ID, "Сохранение похожих статей запрещено."),
-		)
+		bot.conf.Update()
+		return "Сохранение похожих статей запрещено.", nil
 	} else {
 		bot.conf.Analysis.SaveSimilarArticles = true
-		bot.api.Send(
-			tgbotapi.NewMessage(message.Chat.ID, "Сохранение похожих статей разрешено."),
-		)
+		bot.conf.Update()
+		return "Сохранение похожих статей разрешено.", nil
 	}
-
-	// Обновляем конфигурационный файл
-	bot.conf.Update()
 }
 
-func (bot *Bot) ChangeVectorSimilarityThreshold(message *tgbotapi.Message) {
-	parts := strings.Split(message.Text, " ")
-	if len(parts) < 2 {
-		msg := tgbotapi.NewMessage(
-			message.Chat.ID,
-			"Не указано новое значение.",
-		)
-		msg.ReplyToMessageID = message.MessageID
-		bot.api.Send(msg)
-		return
+func (bot *Bot) ChangeVectorSimilarityThreshold(args string) (string, error) {
+	if args == "" {
+		return "", errors.New("не указано новое значение")
 	}
 
-	newThreshold, err := strconv.ParseFloat(parts[1], 64)
+	newThreshold, err := strconv.ParseFloat(args, 64)
 	if err != nil || newThreshold < 0 || newThreshold > 1.0 {
-		bot.sendError(message.Chat.ID, "Некорректное значение. Используйте число от 0.0 до 1.0", message.MessageID)
-		return
+		return "", errors.New("некорректное значение. Используйте число от 0.0 до 1.0")
 	}
 
-	// Get and update user config
-	userConfig, err := bot.conf.GetDB().GetUserConfig(message.From.ID)
-	if err != nil {
-		bot.sendError(message.Chat.ID, "Ошибка загрузки ваших настроек", message.MessageID)
-		return
-	}
+	bot.conf.Analysis.VectorSimilarityThreshold = newThreshold
+	bot.conf.Update()
 
-	userConfig.VectorSimilarityThreshold = newThreshold
-	if err := bot.conf.GetDB().SaveUserConfig(userConfig); err != nil {
-		bot.sendError(message.Chat.ID, "Ошибка сохранения настроек", message.MessageID)
-		return
-	}
-
-	bot.sendSuccess(message.Chat.ID, "Порог векторной схожести обновлён!", message.MessageID)
+	return fmt.Sprintf("Порог векторной схожести успешно изменен на %.2f (%.0f%%)",
+		newThreshold, newThreshold*100.0), nil
 }
-
-func (bot *Bot) ChangeDaysLookback(message *tgbotapi.Message) {
-	userConfig, err := bot.conf.GetDB().GetUserConfig(message.From.ID)
-	if err != nil {
-		bot.sendError(message.Chat.ID, "Ошибка загрузки ваших настроек", message.MessageID)
-		return
+func (bot *Bot) ChangeDaysLookback(args string) (string, error) {
+	if args == "" {
+		return "", errors.New("не указано новое значение дней")
 	}
 
-	parts := strings.Split(message.Text, " ")
-	if len(parts) < 2 {
-		msg := tgbotapi.NewMessage(
-			message.Chat.ID,
-			"Не указано новое значение дней.",
-		)
-		msg.ReplyToMessageID = message.MessageID
-		bot.api.Send(msg)
-		return
-	}
-
-	newDaysLookback, err := strconv.ParseInt(parts[1], 10, 64)
+	newDaysLookback, err := strconv.ParseUint(args, 10, 64)
 	if err != nil {
-		msg := tgbotapi.NewMessage(
-			message.Chat.ID,
-			"Указано некорректное значение.",
-		)
-		msg.ReplyToMessageID = message.MessageID
-		bot.api.Send(msg)
-		return
+		return "", errors.New("указано некорректное значение")
 	}
 
 	if newDaysLookback <= 0 {
-		msg := tgbotapi.NewMessage(
-			message.Chat.ID,
-			"Указано некорректное значение. Необходимо указать значение дней > 0",
-		)
-		msg.ReplyToMessageID = message.MessageID
-		bot.api.Send(msg)
-		return
+		return "", errors.New("указано некорректное значение. Необходимо указать значение дней > 0")
 	}
 
-	userConfig.DaysLookback = uint(newDaysLookback)
-	if err := bot.conf.GetDB().SaveUserConfig(userConfig); err != nil {
-		bot.sendError(message.Chat.ID, "Ошибка сохранения настроек", message.MessageID)
-		return
-	}
+	bot.conf.Analysis.DaysLookback = uint(newDaysLookback)
+	bot.conf.Update()
 
-	msg := tgbotapi.NewMessage(
-		message.Chat.ID,
-		"Значение успешно изменено.",
-	)
-	msg.ReplyToMessageID = message.MessageID
-	bot.api.Send(msg)
+	return fmt.Sprintf("Значение дней для поиска изменено на %d дней", newDaysLookback), nil
 }
 
-func (bot *Bot) ChangeFinalSimilarityThreshold(message *tgbotapi.Message) {
-	userConfig, err := bot.conf.GetDB().GetUserConfig(message.From.ID)
+func (bot *Bot) ChangeFinalSimilarityThreshold(args string) (string, error) {
+	if args == "" {
+		return "", errors.New("не указано новое значение")
+	}
+
+	newThreshold, err := strconv.ParseFloat(args, 64)
 	if err != nil {
-		bot.sendError(message.Chat.ID, "Ошибка загрузки ваших настроек", message.MessageID)
-		return
+		return "", errors.New("указано некорректное значение")
 	}
 
-	parts := strings.Split(message.Text, " ")
-	if len(parts) < 2 {
-		msg := tgbotapi.NewMessage(
-			message.Chat.ID,
-			"Не указано новое значение.",
-		)
-		msg.ReplyToMessageID = message.MessageID
-		bot.api.Send(msg)
-		return
+	if newThreshold < 0 || newThreshold > 1.0 {
+		return "", errors.New("указано некорректное значение. Необходимо указать значение 0.0 < значение < 1.0")
 	}
 
-	newSimilarityThreshold, err := strconv.ParseFloat(parts[1], 64)
-	if err != nil {
-		msg := tgbotapi.NewMessage(
-			message.Chat.ID,
-			"Указано некорректное значение.",
-		)
-		msg.ReplyToMessageID = message.MessageID
-		bot.api.Send(msg)
-		return
-	}
+	oldThreshold := bot.conf.Analysis.FinalSimilarityThreshold
+	bot.conf.Analysis.FinalSimilarityThreshold = newThreshold
+	bot.conf.Update()
 
-	if newSimilarityThreshold < 0 || newSimilarityThreshold > 1.0 {
-		msg := tgbotapi.NewMessage(
-			message.Chat.ID,
-			"Указано некорректное значение. Необходимо указать значение 0.0 < значение < 1.0",
-		)
-		msg.ReplyToMessageID = message.MessageID
-		bot.api.Send(msg)
-		return
-	}
-
-	userConfig.FinalSimilarityThreshold = newSimilarityThreshold
-	if err := bot.conf.GetDB().SaveUserConfig(userConfig); err != nil {
-		bot.sendError(message.Chat.ID, "Ошибка сохранения настроек", message.MessageID)
-		return
-	}
-
-	msg := tgbotapi.NewMessage(
-		message.Chat.ID,
-		"Значение успешно изменено.",
-	)
-	msg.ReplyToMessageID = message.MessageID
-	bot.api.Send(msg)
+	return fmt.Sprintf("Конечный порог схожести успешно изменен с %.2f на %.2f (%.0f%%)",
+		oldThreshold, newThreshold, newThreshold*100.0), nil
 }
 
-func (bot *Bot) ChangeCompositeWeights(message *tgbotapi.Message) {
-	userConfig, err := bot.conf.GetDB().GetUserConfig(message.From.ID)
-	if err != nil {
-		bot.sendError(message.Chat.ID, "Ошибка загрузки ваших настроек", message.MessageID)
-		return
+func (bot *Bot) ChangeCompositeWeights(args string) (string, error) {
+	if args == "" {
+		return "", errors.New("не указано новое значение")
 	}
 
-	parts := strings.Split(message.Text, " ")
-	if len(parts) < 2 {
-		msg := tgbotapi.NewMessage(
-			message.Chat.ID,
-			"Не указано новое значение.",
-		)
-		msg.ReplyToMessageID = message.MessageID
-		bot.api.Send(msg)
-		return
+	newWeight, err := strconv.ParseFloat(args, 64)
+	if err != nil || newWeight < 0 || newWeight > 1.0 {
+		return "", errors.New("некорректное значение. Используйте число от 0.0 до 1.0")
 	}
 
-	newConpositeSimilarity, err := strconv.ParseFloat(parts[1], 64)
-	if err != nil {
-		msg := tgbotapi.NewMessage(
-			message.Chat.ID,
-			"Указано некорректное значение.",
-		)
-		msg.ReplyToMessageID = message.MessageID
-		bot.api.Send(msg)
-		return
-	}
+	bot.conf.Analysis.CompositeVectorWeight = newWeight
+	bot.conf.Update()
 
-	if newConpositeSimilarity < 0 || newConpositeSimilarity > 1.0 {
-		msg := tgbotapi.NewMessage(
-			message.Chat.ID,
-			"Указано некорректное значение. Необходимо указать значение 0.0 < значение < 1.0",
-		)
-		msg.ReplyToMessageID = message.MessageID
-		bot.api.Send(msg)
-		return
-	}
-
-	userConfig.CompositeVectorWeight = newConpositeSimilarity
-	if err := bot.conf.GetDB().SaveUserConfig(userConfig); err != nil {
-		bot.sendError(message.Chat.ID, "Ошибка сохранения настроек", message.MessageID)
-		return
-	}
-
-	msg := tgbotapi.NewMessage(
-		message.Chat.ID,
-		"Значение успешно изменено.",
-	)
-	msg.ReplyToMessageID = message.MessageID
-	bot.api.Send(msg)
+	return fmt.Sprintf("Веса композитного сходства успешно изменены: %.2f (Векторный: %.0f%%, Текстовый: %.0f%%)",
+		newWeight, newWeight*100.0, (1.0-newWeight)*100.0), nil
 }
 
-func (bot *Bot) ForgetArticles(message *tgbotapi.Message) {
+func (bot *Bot) ForgetArticles(args string) (string, error) {
 	err := bot.conf.GetDB().DeleteAllArticles()
 	if err != nil {
-		bot.sendError(message.Chat.ID, "Не удалось удалить статьи", message.MessageID)
-		return
+		return "", fmt.Errorf("не удалось удалить статьи: %w", err)
 	}
 
-	bot.sendSuccess(message.Chat.ID, "Все статьи успешно \"забыты\"", message.MessageID)
+	return "Все статьи успешно \"забыты\"", nil
 }
 
-func (bot *Bot) GenerateSpreadsheet(message *tgbotapi.Message) {
-	// Получаем пользовательский конфиг
-	userConfig, err := bot.conf.GetDB().GetUserConfig(message.From.ID)
-	if err != nil {
-		bot.sendError(message.Chat.ID, "Ошибка загрузки ваших настроек", message.MessageID)
-		return
-	}
-
+func (bot *Bot) GenerateSpreadsheet(args string) (string, error) {
 	articles, err := bot.conf.GetDB().GetAllArticles()
 	if err != nil {
-		log.Printf("Не вышло получить все статьи из базы данных: %s", err)
-		bot.sendError(message.Chat.ID, "Ошибка загрузки статей", message.MessageID)
-		return
-	}
-
-	// Генерируем с учетом пользовательских настроек
-	fileBuffer, err := spreadsheet.GenerateCustomXLSX(articles, userConfig.XLSXColumns, bot.model)
-	if err != nil {
-		bot.sendError(message.Chat.ID, "Ошибка генерации файла", message.MessageID)
-		return
-	}
-
-	// Сохраняем как файл
-	fileName := "ACASbot_Results.xlsx"
-	realFile, err := os.Create(fileName)
-	if err != nil {
-		bot.sendError(message.Chat.ID, "Ошибка сохранения файла: "+err.Error(), message.MessageID)
-	} else {
-		defer realFile.Close()
-		realFile.Write(fileBuffer.Bytes())
-	}
-
-	// Отправляем файл как документ
-	file := tgbotapi.FileBytes{
-		Name:  fileName,
-		Bytes: fileBuffer.Bytes(),
-	}
-
-	msg := tgbotapi.NewDocument(message.Chat.ID, file)
-	msg.Caption = "📊 Сгенерированная таблица на основе базы данных"
-	msg.ReplyToMessageID = message.MessageID
-
-	_, err = bot.api.Send(msg)
-	if err != nil {
-		log.Printf("Ошибка отправки файла: %v", err)
-		bot.sendError(message.Chat.ID, "Не удалось отправить файл: "+err.Error(), message.MessageID)
-	}
-}
-
-func (bot *Bot) SaveLocalSpreadsheet() error {
-	articles, err := bot.conf.GetDB().GetAllArticles()
-	if err != nil {
-		return err
+		return "", fmt.Errorf("ошибка загрузки статей: %w", err)
 	}
 
 	// Генерируем Excel в памяти
 	fileBuffer, err := spreadsheet.GenerateFromDatabase(articles)
 	if err != nil {
-		return err
+		return "", fmt.Errorf("ошибка генерации файла: %w", err)
 	}
 
 	// Сохраняем как файл
-	file, err := os.Create("ACASbot_Results.xlsx")
+	fileName := "ACASbot_Results.xlsx"
+	file, err := os.Create(fileName)
 	if err != nil {
-		return err
+		return "", fmt.Errorf("ошибка сохранения файла: %w", err)
 	}
 	defer file.Close()
-	file.Write(fileBuffer.Bytes())
+	_, err = file.Write(fileBuffer.Bytes())
+	if err != nil {
+		return "", fmt.Errorf("ошибка записи файла: %w", err)
+	}
 
-	return nil
+	return fmt.Sprintf("Таблица успешно сгенерирована и сохранена как %s", fileName), nil
 }
 
-func (bot *Bot) FindSimilar(message *tgbotapi.Message) {
-	parts := strings.Split(message.Text, " ")
-	if len(parts) < 2 {
-		msg := tgbotapi.NewMessage(message.Chat.ID, "Вы не указали URL")
-		msg.ReplyToMessageID = message.MessageID
-		bot.api.Send(msg)
-		return
-	}
-	url := parts[1]
-	if !strings.HasPrefix(url, "http") {
-		msg := tgbotapi.NewMessage(message.Chat.ID, "Пожалуйста, отправьте действительный URL, начинающийся с http/https")
-		msg.ReplyToMessageID = message.MessageID
-		bot.api.Send(msg)
-		return
+func (bot *Bot) SaveLocalSpreadsheet(args string) (string, error) {
+	articles, err := bot.conf.GetDB().GetAllArticles()
+	if err != nil {
+		return "", err
 	}
 
-	// Показываем индикатор загрузки
-	processingMsg := tgbotapi.NewMessage(message.Chat.ID, "🔍 Ищу похожие статьи...")
-	processingMsg.ReplyToMessageID = message.MessageID
-	sentMsg, _ := bot.api.Send(processingMsg)
-	defer func() {
-		deleteMsg := tgbotapi.NewDeleteMessage(message.Chat.ID, sentMsg.MessageID)
-		bot.api.Send(deleteMsg)
-	}()
+	// Генерируем Excel в памяти
+	fileBuffer, err := spreadsheet.GenerateFromDatabase(articles)
+	if err != nil {
+		return "", err
+	}
+
+	// Сохраняем как файл
+	fileName := "ACASbot_Results.xlsx"
+	file, err := os.Create(fileName)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	_, err = file.Write(fileBuffer.Bytes())
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("Локальная таблица успешно сохранена как %s", fileName), nil
+}
+
+func (bot *Bot) FindSimilar(args string) (string, error) {
+	parts := strings.Fields(args)
+	if len(parts) == 0 {
+		return "", errors.New("вы не указали URL")
+	}
+
+	url := parts[0]
+	if !strings.HasPrefix(url, "http") {
+		return "", errors.New("пожалуйста, отправьте действительный URL, начинающийся с http/https")
+	}
 
 	// Извлекаем содержимое статьи
 	art, err := bot.getArticle(url)
 	if err != nil {
-		errorMsg := tgbotapi.NewMessage(message.Chat.ID, "❌ Ошибка загрузки статьи: "+err.Error())
-		errorMsg.ReplyToMessageID = message.MessageID
-		bot.api.Send(errorMsg)
-		return
-	}
-
-	// Получаем пользовательские настройки
-	userConfig, err := bot.conf.GetDB().GetUserConfig(message.From.ID)
-	if err != nil {
-		bot.sendError(message.Chat.ID, "Ошибка загрузки настроек", message.MessageID)
-		return
-	}
-
-	// Проверяем точные дубликаты
-	if existing, err := bot.conf.GetDB().GetExactDuplicate(art.Content); err == nil && existing != nil {
-		bot.notifyExactDuplicate(message, existing)
-		return
+		return "", fmt.Errorf("ошибка загрузки статьи: %w", err)
 	}
 
 	// Получаем эмбеддинг
 	embedding, err := bot.model.GetEmbedding(art.Content)
 	if err != nil {
-		bot.sendError(message.Chat.ID, "Ошибка векторизации", message.MessageID)
-		return
+		return "", errors.New("ошибка векторизации")
 	}
 
 	// Ищем похожие статьи
 	similar, err := bot.conf.GetDB().FindSimilar(
 		embedding,
-		userConfig.VectorSimilarityThreshold,
-		userConfig.DaysLookback,
+		bot.conf.Analysis.VectorSimilarityThreshold,
+		uint(bot.conf.Analysis.DaysLookback),
 	)
 	if err != nil {
-		bot.sendError(message.Chat.ID, "Ошибка поиска похожих статей", message.MessageID)
-		return
+		return "", errors.New("ошибка поиска похожих статей")
+	}
+
+	// Формируем результат
+	if len(similar) == 0 {
+		return "✅ Похожие статьи не найдены", nil
+	}
+
+	// Проверка точных дубликатов
+	if existing, err := bot.conf.GetDB().GetExactDuplicate(art.Content); err == nil && existing != nil {
+		return fmt.Sprintf("⚠️ Найден точный дубликат: %s\nURL: %s", existing.Title, existing.SourceURL), nil
+	}
+
+	// Проверка с использованием композитного сходства
+	composite := similarity.NewCompositeSimilarity(bot.conf.Analysis.CompositeVectorWeight)
+	var verified []domain.Article
+	for _, candidate := range similar {
+		score, err := composite.Compare(
+			art.Content,
+			candidate.Content,
+			embedding,
+			candidate.Embedding,
+		)
+		if err == nil && score >= bot.conf.Analysis.FinalSimilarityThreshold {
+			candidate.TrueSimilarity = score
+			verified = append(verified, candidate)
+		}
 	}
 
 	// Формируем сообщение с результатами
-	var duplicatesText string
-	if len(similar) > 0 {
-		composite := similarity.NewCompositeSimilarity(userConfig.CompositeVectorWeight)
-		var verified []domain.Article
-
-		for _, candidate := range similar {
-			score, err := composite.Compare(
-				art.Content,
-				candidate.Content,
-				embedding,
-				candidate.Embedding,
-			)
-			if err == nil && score >= userConfig.FinalSimilarityThreshold {
-				candidate.TrueSimilarity = score
-				verified = append(verified, candidate)
-			}
-		}
-
-		duplicatesText = bot.generateDuplicatesMessage(verified, *art)
+	if len(verified) == 0 {
+		return "✅ Похожие статьи не найдены (после применения композитного сходства)", nil
 	}
 
-	// Формируем и отправляем результат
-	if duplicatesText != "" {
-		msg := tgbotapi.NewMessage(message.Chat.ID, duplicatesText)
-		msg.ParseMode = "Markdown"
-		msg.ReplyToMessageID = message.MessageID
-		bot.api.Send(msg)
-	} else {
-		msg := tgbotapi.NewMessage(message.Chat.ID, "✅ Похожие статьи не найдены")
-		msg.ReplyToMessageID = message.MessageID
-		bot.api.Send(msg)
+	var result strings.Builder
+	result.WriteString(fmt.Sprintf("🔍 Найдено %d похожих статей:\n\n", len(verified)))
+
+	for i, article := range verified {
+		result.WriteString(fmt.Sprintf("%d. *%s*\n", i+1, article.Title))
+		result.WriteString(fmt.Sprintf("   🔗 [Источник](%s)\n", article.SourceURL))
+		result.WriteString(fmt.Sprintf("   💡 Сходство: %.2f%%\n\n", article.TrueSimilarity*100))
 	}
+
+	return result.String(), nil
 }
-func parseExcelDate(cellValue string) (time.Time, error) {
+
+func ParseExcelDate(cellValue string) (time.Time, error) {
 	// Удаляем лишние пробелы
 	cellValue = strings.TrimSpace(cellValue)
 
@@ -1281,62 +831,26 @@ func parseExcelDate(cellValue string) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("unrecognized date format: %s", cellValue)
 }
 
-func (bot *Bot) LoadXLSX(message *tgbotapi.Message) {
-	// Проверяем, есть ли прикрепленный файл
-	if message.Document == nil {
-		msg := tgbotapi.NewMessage(message.Chat.ID, "Пожалуйста, прикрепите XLSX файл к команде")
-		bot.api.Send(msg)
-		return
+func (bot *Bot) LoadXLSX(args string) (string, error) {
+	// В новой системе args должен содержать путь к XLSX-файлу
+	if args == "" {
+		return "", errors.New("укажите путь к XLSX файлу")
 	}
 
 	// Проверяем расширение файла
-	if !strings.HasSuffix(message.Document.FileName, ".xlsx") {
-		msg := tgbotapi.NewMessage(message.Chat.ID, "Формат файла должен быть .xlsx")
-		bot.api.Send(msg)
-		return
+	if !strings.HasSuffix(args, ".xlsx") {
+		return "", errors.New("формат файла должен быть .xlsx")
 	}
 
-	// Скачиваем файл
-	fileURL, err := bot.api.GetFileDirectURL(message.Document.FileID)
-	if err != nil {
-		bot.sendError(message.Chat.ID, "Ошибка получения файла", message.MessageID)
-		return
-	}
-
-	// Индикатор загрузки
-	processingMsg := tgbotapi.NewMessage(message.Chat.ID, "📥 Загружаю файл...")
-	sentMsg, _ := bot.api.Send(processingMsg)
-
-	// Создаем временный файл
-	tmpFile, err := os.CreateTemp("", "acasbot-*.xlsx")
-	if err != nil {
-		bot.sendError(message.Chat.ID, "Ошибка создания временного файла", message.MessageID)
-		return
-	}
-	defer os.Remove(tmpFile.Name())
-	defer tmpFile.Close()
-
-	// Скачиваем содержимое
-	resp, err := http.Get(fileURL)
-	if err != nil {
-		log.Printf("Ошибка скачивания файла: %s", err)
-		bot.sendError(message.Chat.ID, "Ошибка скачивания файла", message.MessageID)
-		return
-	}
-	defer resp.Body.Close()
-
-	if _, err := io.Copy(tmpFile, resp.Body); err != nil {
-		log.Printf("Ошибка сохранения файла: %s", err)
-		bot.sendError(message.Chat.ID, "Ошибка сохранения файла", message.MessageID)
-		return
+	// Проверяем существование файла
+	if _, err := os.Stat(args); os.IsNotExist(err) {
+		return "", fmt.Errorf("файл %s не найден", args)
 	}
 
 	// Парсим XLSX
-	xlFile, err := xlsx.OpenFile(tmpFile.Name())
+	xlFile, err := xlsx.OpenFile(args)
 	if err != nil {
-		log.Printf("Ошибка чтения файла: %s", err)
-		bot.sendError(message.Chat.ID, "Ошибка чтения XLSX файла", message.MessageID)
-		return
+		return "", fmt.Errorf("ошибка чтения XLSX файла: %w", err)
 	}
 
 	// Обрабатываем данные
@@ -1354,6 +868,7 @@ func (bot *Bot) LoadXLSX(message *tgbotapi.Message) {
 			// Извлекаем данные из строки
 			cells := row.Cells
 			if len(cells) < 6 {
+				skipCount++
 				continue
 			}
 
@@ -1365,7 +880,7 @@ func (bot *Bot) LoadXLSX(message *tgbotapi.Message) {
 			}
 
 			// Парсим дату публикации
-			pubDate, err := parseExcelDate(cells[0].String())
+			pubDate, err := ParseExcelDate(cells[0].String())
 			if err != nil {
 				log.Printf("Failed to parse date: %s", err)
 				pubDate = time.Now()
@@ -1400,132 +915,66 @@ func (bot *Bot) LoadXLSX(message *tgbotapi.Message) {
 		}
 	}
 
-	// Отправляем отчет
-	report := fmt.Sprintf(
+	return fmt.Sprintf(
 		"✅ Успешно загружено: %d статей\n🚫 Пропущено (дубликаты/ошибки): %d",
 		successCount, skipCount,
-	)
-	log.Printf("Загружено %d статей", successCount)
-
-	// Удаляем индикатор
-	deleteMsg := tgbotapi.NewDeleteMessage(message.Chat.ID, sentMsg.MessageID)
-	bot.api.Send(deleteMsg)
-
-	msg := tgbotapi.NewMessage(message.Chat.ID, report)
-	bot.api.Send(msg)
+	), nil
 }
 
-func (bot *Bot) SendLogs(message *tgbotapi.Message) {
-	// Check if log file exists
+func (bot *Bot) SendLogs(args string) (string, error) {
+	// Проверяем, существует ли файл логов
 	if _, err := os.Stat(bot.conf.LogsFile); os.IsNotExist(err) {
-		bot.sendError(message.Chat.ID, "Файл логов не найден", message.MessageID)
-		return
+		return "", errors.New("файл логов не найден")
 	}
 
-	// Read log file
-	logFile, err := os.Open(bot.conf.LogsFile)
+	// Читаем лог-файл
+	logContent, err := os.ReadFile(bot.conf.LogsFile)
 	if err != nil {
-		bot.sendError(message.Chat.ID, "Ошибка чтения файла логов", message.MessageID)
-		log.Printf("Error opening log file: %v", err)
-		return
-	}
-	defer logFile.Close()
-
-	// Get file stats
-	fileInfo, err := logFile.Stat()
-	if err != nil {
-		bot.sendError(message.Chat.ID, "Ошибка получения информации о файле", message.MessageID)
-		log.Printf("Error getting file stats: %v", err)
-		return
+		return "", fmt.Errorf("ошибка чтения файла логов: %w", err)
 	}
 
-	if fileInfo.Size() > 50*1024*1024 {
-		bot.sendError(message.Chat.ID, "Файл логов слишком большой (максимум 50MB)", message.MessageID)
-		return
+	// Проверяем размер файла
+	if len(logContent) > 50*1024*1024 { // 50MB
+		return "", errors.New("файл логов слишком большой (максимум 50MB)")
 	}
 
-	// Read file content
-	fileBytes, err := io.ReadAll(logFile)
-	if err != nil {
-		bot.sendError(message.Chat.ID, "Ошибка чтения содержимого файла", message.MessageID)
-		log.Printf("Error reading log file: %v", err)
-		return
-	}
-
-	// Create message with log file
-	file := tgbotapi.FileBytes{
-		Name:  "ACASbot_logs.txt",
-		Bytes: fileBytes,
-	}
-
-	msg := tgbotapi.NewDocument(message.Chat.ID, file)
-	msg.Caption = "📋 Логи бота"
-	msg.ReplyToMessageID = message.MessageID
-
-	// Send the file
-	if _, err := bot.api.Send(msg); err != nil {
-		bot.sendError(message.Chat.ID, "Ошибка отправки файла", message.MessageID)
-		log.Printf("Error sending log file: %v", err)
-	}
+	// Для веб-интерфейса возвращаем содержимое логов
+	return string(logContent), nil
 }
 
-func (bot *Bot) SetXLSXColumns(message *tgbotapi.Message) {
-	parts := strings.SplitN(message.Text, " ", 2)
-	if len(parts) < 2 {
-		bot.sendError(message.Chat.ID, "Укажите JSON с настройкой колонок", message.MessageID)
-		return
-	}
-
-	userConfig, err := bot.conf.GetDB().GetUserConfig(message.From.ID)
-	if err != nil {
-		bot.sendError(message.Chat.ID, "Ошибка загрузки вашего конфига", message.MessageID)
-		return
+func (bot *Bot) SetXLSXColumns(args string) (string, error) {
+	if args == "" {
+		return "", errors.New("укажите JSON с настройкой колонок")
 	}
 
 	var columns []domain.XLSXColumn
-	if err := json.Unmarshal([]byte(parts[1]), &columns); err != nil {
-		bot.sendError(message.Chat.ID, "Неверный формат JSON", message.MessageID)
-		return
+	if err := json.Unmarshal([]byte(args), &columns); err != nil {
+		return "", errors.New("неверный формат JSON")
 	}
 
-	userConfig.XLSXColumns = columns
-	if err := bot.conf.GetDB().SaveUserConfig(userConfig); err != nil {
-		bot.sendError(message.Chat.ID, "Ошибка сохранения конфига", message.MessageID)
-		return
-	}
-
-	bot.sendSuccess(message.Chat.ID, "Конфиг колонок XLSX обновлен", message.MessageID)
-}
-
-func (bot *Bot) ShowXLSXColumns(message *tgbotapi.Message) {
-	userConfig, err := bot.conf.GetDB().GetUserConfig(message.From.ID)
-	if err != nil {
-		bot.sendError(message.Chat.ID, "Ошибка загрузки вашего конфига", message.MessageID)
-		return
-	}
-
-	columnsJSON, _ := json.MarshalIndent(userConfig.XLSXColumns, "", "  ")
-	msg := tgbotapi.NewMessage(
-		message.Chat.ID,
-		"Текущие колонки XLSX:\n```json\n"+string(columnsJSON)+"\n```",
-	)
-	msg.ParseMode = "Markdown"
-	bot.api.Send(msg)
-}
-
-func (bot *Bot) TogglePushToGoogleSheets(message *tgbotapi.Message) {
-	if bot.conf.Sheets.PushToGoogleSheet {
-		bot.conf.Sheets.PushToGoogleSheet = false
-		bot.api.Send(
-			tgbotapi.NewMessage(message.Chat.ID, "Добавление данных в гугл таблицу отключено."),
-		)
-	} else {
-		bot.conf.Sheets.PushToGoogleSheet = true
-		bot.api.Send(
-			tgbotapi.NewMessage(message.Chat.ID, "Добавление данных в гугл таблицу включено."),
-		)
-	}
-
-	// Обновляем конфигурационный файл
+	// Сохраняем в общий конфиг
+	bot.conf.Sheets.XLSXColumns = columns
 	bot.conf.Update()
+
+	return "Конфиг колонок XLSX обновлен", nil
+}
+
+func (bot *Bot) ShowXLSXColumns(args string) (string, error) {
+	columnsJSON, err := json.MarshalIndent(bot.conf.Sheets.XLSXColumns, "", "  ")
+	if err != nil {
+		return "", errors.New("ошибка форматирования конфигурации")
+	}
+
+	return fmt.Sprintf("Текущие колонки XLSX:\n```json\n%s\n```", string(columnsJSON)), nil
+}
+
+func (bot *Bot) TogglePushToGoogleSheets(args string) (string, error) {
+	bot.conf.Sheets.PushToGoogleSheet = !bot.conf.Sheets.PushToGoogleSheet
+	bot.conf.Update()
+
+	if bot.conf.Sheets.PushToGoogleSheet {
+		return "Добавление данных в гугл таблицу включено.", nil
+	} else {
+		return "Добавление данных в гугл таблицу отключено.", nil
+	}
 }

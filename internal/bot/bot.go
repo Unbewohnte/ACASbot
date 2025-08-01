@@ -5,7 +5,10 @@ import (
 	"Unbewohnte/ACASbot/internal/spreadsheet"
 	"context"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -18,6 +21,7 @@ type Bot struct {
 	model    *inference.Client
 	commands []Command
 	sheet    *spreadsheet.GoogleSheetsClient
+	server   *WebServer
 }
 
 func NewBot(config *Config) (*Bot, error) {
@@ -35,11 +39,15 @@ func NewBot(config *Config) (*Bot, error) {
 		return nil, err
 	}
 
-	return &Bot{
+	bot := &Bot{
 		api:   api,
 		conf:  config,
 		model: model,
-	}, nil
+	}
+
+	bot.server = NewWebServer(bot)
+
+	return bot, nil
 }
 
 func (bot *Bot) StartAutoSave(interval time.Duration) {
@@ -48,7 +56,7 @@ func (bot *Bot) StartAutoSave(interval time.Duration) {
 		for {
 			select {
 			case <-ticker.C:
-				if err := bot.SaveLocalSpreadsheet(); err != nil {
+				if _, err := bot.SaveLocalSpreadsheet(""); err != nil {
 					log.Printf("Ошибка автосохранения: %v", err)
 				} else {
 					log.Printf("Автосохранение выполнено успешно")
@@ -58,7 +66,7 @@ func (bot *Bot) StartAutoSave(interval time.Duration) {
 	}()
 }
 
-func (bot *Bot) Init() {
+func (bot *Bot) init() {
 	_, err := bot.conf.OpenDB()
 	if err != nil {
 		log.Panic(err)
@@ -152,7 +160,7 @@ func (bot *Bot) Init() {
 		Description: "Изменить идентификатор таблицы",
 		Example:     "setsheetid s0m3_1d_l1k3_k4DGHJd1",
 		Group:       "Таблицы",
-		Call:        bot.ChangeSpreadhseetID,
+		Call:        bot.ChangeSpreadsheetID,
 	})
 
 	bot.NewCommand(Command{
@@ -192,7 +200,7 @@ func (bot *Bot) Init() {
 		Description: "Изменить промпт нахождения заголовка",
 		Example:     "setpromptti Найди заголовок текста. Текст: {{TEXT}}",
 		Group:       "LLM",
-		Call:        bot.SettTitlePrompt,
+		Call:        bot.SetTitlePrompt,
 	})
 
 	bot.NewCommand(Command{
@@ -285,10 +293,15 @@ func (bot *Bot) Init() {
 
 	// Автоматически сохранять таблицу
 	bot.StartAutoSave(time.Hour * 1)
+
+	// Запустить веб-сервер
+	if bot.conf.Web.Enabled {
+		bot.server.Start()
+	}
 }
 
 func (bot *Bot) Start() error {
-	bot.Init()
+	bot.init()
 
 	log.Printf("Бот авторизован как %s", bot.api.Self.UserName)
 
@@ -338,9 +351,9 @@ func (bot *Bot) Start() error {
 					message.Text = message.Caption
 				}
 
-				for _, command := range bot.commands {
+				for index, command := range bot.commands {
 					if strings.HasPrefix(strings.ToLower(message.Text), command.Name) {
-						go command.Call(message)
+						bot.handleTelegramCommand(&bot.commands[index], message)
 						return // Дальше не продолжаем
 					}
 				}
@@ -351,7 +364,7 @@ func (bot *Bot) Start() error {
 					do := bot.CommandByName("do")
 					if do != nil {
 						message.Text = "do " + message.Text
-						do.Call(message)
+						bot.handleTelegramCommand(do, message)
 					}
 				} else {
 					// Неверно введенная команда
@@ -389,4 +402,107 @@ func (bot *Bot) sendCommandSuggestions(chatID int64, input string) {
 	msg := tgbotapi.NewMessage(chatID, message)
 	msg.ParseMode = "Markdown"
 	bot.api.Send(msg)
+}
+
+func (bot *Bot) handleTelegramCommand(command *Command, msg *tgbotapi.Message) {
+	var args string
+
+	switch command.Name {
+	case "loadxlsx":
+		// Для команды loadxlsx обрабатываем прикрепленный файл
+		if msg.Document == nil {
+			bot.sendError(msg.Chat.ID, "Пожалуйста, прикрепите XLSX файл к команде", msg.MessageID)
+			return
+		}
+
+		// Проверяем расширение файла
+		if !strings.HasSuffix(msg.Document.FileName, ".xlsx") {
+			bot.sendError(msg.Chat.ID, "Формат файла должен быть .xlsx", msg.MessageID)
+			return
+		}
+
+		// Скачиваем файл
+		fileURL, err := bot.api.GetFileDirectURL(msg.Document.FileID)
+		if err != nil {
+			bot.sendError(msg.Chat.ID, "Ошибка получения файла", msg.MessageID)
+			return
+		}
+
+		// Индикатор загрузки
+		processingMsg := tgbotapi.NewMessage(msg.Chat.ID, "📥 Загружаю файл...")
+		sentMsg, _ := bot.api.Send(processingMsg)
+		defer func() {
+			deleteMsg := tgbotapi.NewDeleteMessage(msg.Chat.ID, sentMsg.MessageID)
+			bot.api.Send(deleteMsg)
+		}()
+
+		// Создаем временный файл
+		tmpFile, err := os.CreateTemp("", "acasbot-*.xlsx")
+		if err != nil {
+			bot.sendError(msg.Chat.ID, "Ошибка создания временного файла", msg.MessageID)
+			return
+		}
+		defer os.Remove(tmpFile.Name())
+		defer tmpFile.Close()
+
+		// Скачиваем содержимое
+		resp, err := http.Get(fileURL)
+		if err != nil {
+			bot.sendError(msg.Chat.ID, "Ошибка скачивания файла", msg.MessageID)
+			return
+		}
+		defer resp.Body.Close()
+
+		if _, err := io.Copy(tmpFile, resp.Body); err != nil {
+			bot.sendError(msg.Chat.ID, "Ошибка сохранения файла", msg.MessageID)
+			return
+		}
+
+		// Устанавливаем args как путь к временному файлу
+		args = tmpFile.Name()
+	case "xlsx":
+		fileName := "ACASbot_Results.xlsx"
+		if _, err := os.Stat(fileName); err == nil {
+			// Файл существует, отправляем его
+			fileBytes, err := os.ReadFile(fileName)
+			if err != nil {
+				bot.sendError(msg.Chat.ID, "Ошибка чтения файла: "+err.Error(), msg.MessageID)
+				return
+			}
+
+			file := tgbotapi.FileBytes{
+				Name:  "ACASbot_Results.xlsx",
+				Bytes: fileBytes,
+			}
+			docMsg := tgbotapi.NewDocument(msg.Chat.ID, file)
+			docMsg.Caption = "📊 Сгенерированная таблица на основе базы данных"
+			docMsg.ReplyToMessageID = msg.MessageID
+			_, err = bot.api.Send(docMsg)
+			if err != nil {
+				bot.sendError(msg.Chat.ID, "Ошибка отправки файла: "+err.Error(), msg.MessageID)
+				return
+			}
+
+			// Отправляем подтверждающее сообщение
+			bot.sendMessage(msg.Chat.ID, "Таблица успешно сгенерирована и отправлена", msg.MessageID)
+			return
+		}
+	default:
+		// Убрать имя команды
+		parts := strings.Split(strings.TrimSpace(msg.Text), " ")
+		if len(parts) < 2 {
+			// Пробуем как есть
+			args = parts[0]
+		} else {
+			args = strings.Join(parts[1:], " ")
+		}
+	}
+
+	result, err := command.Call(args)
+	if err != nil {
+		bot.sendError(msg.Chat.ID, "Ошибка: "+err.Error(), msg.MessageID)
+		return
+	}
+
+	bot.sendMessage(msg.Chat.ID, result, msg.MessageID)
 }

@@ -20,6 +20,7 @@ package bot
 
 import (
 	"Unbewohnte/ACASbot/internal/db"
+	"Unbewohnte/ACASbot/internal/domain"
 	"Unbewohnte/ACASbot/internal/spreadsheet"
 	"encoding/json"
 	"errors"
@@ -54,8 +55,9 @@ type GoogleSheetsConf struct {
 }
 
 type Sheets struct {
-	PushToGoogleSheet bool             `json:"push_to_google_sheet"`
-	Google            GoogleSheetsConf `json:"google"`
+	PushToGoogleSheet bool                `json:"push_to_google_sheet"`
+	Google            GoogleSheetsConf    `json:"google"`
+	XLSXColumns       []domain.XLSXColumn `db:"xlsx_columns"`
 }
 
 type DBConf struct {
@@ -64,10 +66,21 @@ type DBConf struct {
 }
 
 type AnalysisConf struct {
-	Object              string `json:"object"`
-	ObjectMetadata      string `json:"object_metadata"`
-	MaxContentSize      uint   `json:"max_content_size"`
-	SaveSimilarArticles bool   `json:"save_similar_articles"`
+	Object                    string  `json:"object"`
+	ObjectMetadata            string  `json:"object_metadata"`
+	MaxContentSize            uint    `json:"max_content_size"`
+	SaveSimilarArticles       bool    `json:"save_similar_articles"`
+	VectorSimilarityThreshold float64 `db:"vector_similarity_threshold"`
+	DaysLookback              uint    `db:"days_lookback"`
+	CompositeVectorWeight     float64 `db:"composite_vector_weight"`
+	FinalSimilarityThreshold  float64 `db:"final_similarity_threshold"`
+}
+
+type WebConf struct {
+	Enabled  bool   `json:"enabled"`
+	Port     int    `json:"port"`
+	Username string `json:"username"`
+	Password string `json:"password"`
 }
 
 type Config struct {
@@ -77,6 +90,7 @@ type Config struct {
 	Analysis AnalysisConf `json:"analysis"`
 	Debug    bool         `json:"debug"`
 	DB       DBConf       `json:"database"`
+	Web      WebConf      `json:"web"`
 	LogsFile string       `json:"logs_file"`
 }
 
@@ -119,15 +133,67 @@ func DefaultConfig() *Config {
 					nil, "spreadsheet_id", "Sheet 1",
 				),
 			},
+			XLSXColumns: []domain.XLSXColumn{
+				{
+					Name:  "Дата добавления",
+					Field: "created_at",
+				},
+				{
+					Name:  "Дата публикации",
+					Field: "published_at",
+				},
+				{
+					Name:  "Ресурс",
+					Field: "hostname", // Вернёт hostname через специальную обработку
+				},
+				{
+					Name:  "Заголовок",
+					Field: "title",
+				},
+				{
+					Name:  "URL",
+					Field: "SourceURL", // Прямая подстановка без обработки
+				},
+				{
+					Name:  "Примечание",
+					Field: "affiliation",
+				},
+				{
+					Name:  "Тональность",
+					Field: "sentiment",
+				},
+				{
+					Name:  "Цитирований",
+					Field: "citations",
+				},
+				{
+					Name:  "Похожие статьи",
+					Field: "similar_urls",
+				},
+				{
+					Name:  "Оригинальность",
+					Field: "original",
+				},
+			},
 		},
 		Analysis: AnalysisConf{
-			Object:              "Жители, люди",
-			ObjectMetadata:      "",
-			MaxContentSize:      8000,
-			SaveSimilarArticles: true,
+			Object:                    "Жители, люди",
+			ObjectMetadata:            "",
+			MaxContentSize:            8000,
+			SaveSimilarArticles:       true,
+			VectorSimilarityThreshold: 0.5,
+			DaysLookback:              7,
+			CompositeVectorWeight:     0.7,
+			FinalSimilarityThreshold:  0.65,
 		},
 		DB: DBConf{
 			File: "ACASBOT.sqlite3",
+		},
+		Web: WebConf{
+			Enabled:  true,
+			Port:     8080,
+			Username: "admin",
+			Password: "secret",
 		},
 		Debug:    false,
 		LogsFile: "logs.txt",

@@ -1,6 +1,6 @@
 all: clean
 	mkdir -p bin
-	go build -o ACASbot ./cmd && mv ACASbot bin/ ; cp config.json bin/ ; cp acasbot-sheet.json bin/
+	go build -o ACASbot ./cmd && mv ACASbot bin/ ; cp config.json bin/ ; cp acasbot-sheet.json bin/ ; cp -r web bin/ ; cp ACASBOT.sqlite3 bin/
 
 clean:
 	rm -rf bin/ ACASbot*
