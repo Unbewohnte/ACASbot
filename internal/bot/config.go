@@ -70,10 +70,10 @@ type AnalysisConf struct {
 	ObjectMetadata            string  `json:"object_metadata"`
 	MaxContentSize            uint    `json:"max_content_size"`
 	SaveSimilarArticles       bool    `json:"save_similar_articles"`
-	VectorSimilarityThreshold float64 `db:"vector_similarity_threshold"`
-	DaysLookback              uint    `db:"days_lookback"`
-	CompositeVectorWeight     float64 `db:"composite_vector_weight"`
-	FinalSimilarityThreshold  float64 `db:"final_similarity_threshold"`
+	VectorSimilarityThreshold float64 `json:"vector_similarity_threshold"`
+	DaysLookback              uint    `json:"days_lookback"`
+	CompositeVectorWeight     float64 `json:"composite_vector_weight"`
+	FinalSimilarityThreshold  float64 `json:"final_similarity_threshold"`
 }
 
 type WebConf struct {
