@@ -1,30 +1,299 @@
 <!DOCTYPE html>
-<html>
+<html lang="ru">
 <head>
-    <title>ACASbot Web</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; }
-        #chat { height: 400px; overflow-y: auto; border: 1px solid #ccc; padding: 10px; margin-bottom: 10px; }
-        .message { margin-bottom: 10px; }
-        .bot { color: #1a73e8; }
-        .log { color: #666; font-size: 0.9em; }
-        .error { color: #d32f2f; }
-        .status { color: #388e3c; }
-    </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ACASbot Web Interface</title>
+    <link rel="stylesheet" href="/static/bootstrap/css/bootstrap.min.css">
+    <link rel="stylesheet" href="/static/bootstrap/css/bootstrap-icons.min.css">
+    <link rel="stylesheet" href="/static/stylesheet.css">
 </head>
 <body>
-    <div id="login-form" style="display: none;">
-        <h2>Авторизация</h2>
-        <input type="text" id="username" placeholder="Логин"><br>
-        <input type="password" id="password" placeholder="Пароль"><br>
-        <button onclick="login()">Войти</button>
+    <nav class="navbar navbar-expand-lg navbar-light bg-white">
+        <div class="container-fluid">
+            <a class="navbar-brand d-flex align-items-center" href="#">
+                <i class="bi bi-robot me-2 fs-4" style="color: var(--primary-color);"></i>
+                <span class="fw-bold fs-4">ACASbot Web</span>
+            </a>
+            <div class="d-flex align-items-center">
+                <button class="theme-toggle me-2" id="theme-toggle" title="Переключить тему">
+                    <i class="bi bi-moon-stars-fill"></i>
+                </button>
+                <button class="btn btn-sm btn-outline-secondary d-flex align-items-center help-toggle" id="help-toggle">
+                    <i class="bi bi-question-circle me-1"></i> Справка
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <div id="login-form" class="container">
+        <div class="card shadow-sm">
+            <div class="card-body p-4">
+                <div class="text-center mb-4">
+                    <i class="bi bi-shield-lock fs-1 mb-3" style="color: var(--primary-color);"></i>
+                    <h2 class="fw-bold">Авторизация</h2>
+                    <p class="text-muted">Введите учетные данные для доступа к ACASbot</p>
+                </div>
+                <form id="login-form-inner">
+                    <div class="mb-3">
+                        <label for="username" class="form-label">Логин</label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-light">
+                                <i class="bi bi-person"></i>
+                            </span>
+                            <input type="text" class="form-control" id="username" placeholder="Введите логин" required>
+                        </div>
+                    </div>
+                    <div class="mb-4">
+                        <label for="password" class="form-label">Пароль</label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-light">
+                                <i class="bi bi-lock"></i>
+                            </span>
+                            <input type="password" class="form-control" id="password" placeholder="Введите пароль" required>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100 py-2" style="background-color: var(--primary-color);">
+                        <i class="bi bi-box-arrow-in-right me-2"></i>Войти
+                    </button>
+                </form>
+            </div>
+        </div>
     </div>
     
-    <div id="chat-container" style="display: none;">
-        <div id="status" class="status">Соединение: отключено</div>
-        <div id="chat"></div>
-        <input type="text" id="command" placeholder="Введите команду..." disabled>
-        <button onclick="sendCommand()" disabled>Отправить</button>
+    <div id="chat-container" style="display: none;" class="container">
+        <div class="row justify-content-center">
+            <div class="col-12">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h3 class="fw-bold d-flex align-items-center">
+                        <i class="bi bi-chat-left-text me-2" style="color: var(--primary-color);"></i>
+                        Панель управления ACASbot
+                    </h3>
+                    <div class="d-flex align-items-center">
+                        <span id="status" class="status">Соединение: отключено</span>
+                    </div>
+                </div>
+                
+                <div class="card shadow-sm">
+                    <div class="card-body p-0">
+                        <div id="chat" class="p-3"></div>
+                        
+                        <div class="welcome-message" id="welcome-message">
+                            <i class="bi bi-info-circle fs-1 mb-3" style="color: var(--primary-color);"></i>
+                            <h3>Добро пожаловать в ACASbot Web</h3>
+                            <p>Начните с ввода команды или URL-адреса статьи для анализа</p>
+                            <div class="command-list mt-4">
+                                <div class="command-card" onclick="insertCommand('do ')">
+                                    <div class="command-card-header">Анализ статьи</div>
+                                    <div class="command-card-body">
+                                        <div class="command-description">Проанализировать статью по URL</div>
+                                        <div class="command-example">do https://example.com</div>
+                                    </div>
+                                </div>
+                                <div class="command-card" onclick="insertCommand('help')">
+                                    <div class="command-card-header">Помощь</div>
+                                    <div class="command-card-body">
+                                        <div class="command-description">Показать список всех команд</div>
+                                        <div class="command-example">help</div>
+                                    </div>
+                                </div>
+                                <div class="command-card" onclick="insertCommand('changeobj ')">
+                                    <div class="command-card-header">Объект анализа</div>
+                                    <div class="command-card-body">
+                                        <div class="command-description">Изменить объект анализа</div>
+                                        <div class="command-example">changeobj Новый объект</div>
+                                    </div>
+                                </div>
+                                <div class="command-card" onclick="insertCommand('generatespreadsheet')">
+                                    <div class="command-card-header">Экспорт данных</div>
+                                    <div class="command-card-body">
+                                        <div class="command-description">Сгенерировать таблицу с результатами</div>
+                                        <div class="command-example">generatespreadsheet</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="command-input-container p-3 border-top">
+                            <div class="position-relative" style="flex: 1;">
+                                <input type="text" id="command" class="form-control" placeholder="Введите команду или URL...">
+                                <div class="command-suggestions" id="command-suggestions" style="display: none;"></div>
+                            </div>
+                            <button class="send-btn" id="send-btn" title="Отправить команду">
+                                <i class="bi bi-send-fill"></i>
+                            </button>
+                            <button class="theme-toggle" id="sidebar-toggle" title="Помощь по командам">
+                                <i class="bi bi-list"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="mt-3 text-center text-muted">
+                    <small><a href="https://github.com/Unbewohnte/ACASbot">ACASbot</a></small>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <h5 class="mb-0">Справка по командам</h5>
+            <button class="btn-close" id="sidebar-close"></button>
+        </div>
+        <div class="sidebar-content">
+            <div class="help-section">
+                <h5>LLM</h5>
+                <div class="help-item">
+                    <strong>setquerytimeout [секунды]</strong>
+                    <div class="help-description">Изменить допустимое время запросов к LLM в секундах</div>
+                </div>
+                <div class="help-item">
+                    <strong>ask [запрос]</strong>
+                    <div class="help-description">Задать общий запрос модели</div>
+                </div>
+                <div class="help-item">
+                    <strong>setpromptaf [промпт]</strong>
+                    <div class="help-description">Изменить промпт связи с объектом</div>
+                </div>
+                <div class="help-item">
+                    <strong>setpromptti [промпт]</strong>
+                    <div class="help-description">Изменить промпт нахождения заголовка</div>
+                </div>
+                <div class="help-item">
+                    <strong>setpromptsent [промпт]</strong>
+                    <div class="help-description">Изменить промпт выявления отношения к объекту</div>
+                </div>
+                <div class="help-item">
+                    <strong>models</strong>
+                    <div class="help-description">Показать доступные локальные LLM</div>
+                </div>
+                <div class="help-item">
+                    <strong>setmodel [имя]</strong>
+                    <div class="help-description">Указать новую локальную LLM для использования</div>
+                </div>
+            </div>
+            
+            <div class="help-section">
+                <h5>Анализ</h5>
+                <div class="help-item">
+                    <strong>changeobj [объект]</strong>
+                    <div class="help-description">Изменить имя объекта, отношение к которому будет анализировано</div>
+                </div>
+                <div class="help-item">
+                    <strong>do [URL]</strong>
+                    <div class="help-description">Анализировать статью по URL</div>
+                </div>
+                <div class="help-item">
+                    <strong>toggleSaveSimilar</strong>
+                    <div class="help-description">Переключить сохранение похожих статей</div>
+                </div>
+                <div class="help-item">
+                    <strong>setmaxcontent [лимит]</strong>
+                    <div class="help-description">Установить лимит символов, извлекаемых из текста статьи</div>
+                </div>
+                <div class="help-item">
+                    <strong>findsimilar [URL]</strong>
+                    <div class="help-description">Определить уникальность статьи без полного анализа</div>
+                </div>
+            </div>
+            
+            <div class="help-section">
+                <h5>База данных</h5>
+                <div class="help-item">
+                    <strong>loadxlsx</strong>
+                    <div class="help-description">Загрузить статьи из XLSX файла (без анализа)</div>
+                </div>
+                <div class="help-item">
+                    <strong>forgetarticles</strong>
+                    <div class="help-description">Удалить все статьи из базы данных</div>
+                </div>
+                <div class="help-item">
+                    <strong>changedays [дни]</strong>
+                    <div class="help-description">Изменить количество дней для поиска похожих статей</div>
+                </div>
+                <div class="help-item">
+                    <strong>changevector [значение]</strong>
+                    <div class="help-description">Изменить порог векторной схожести</div>
+                </div>
+                <div class="help-item">
+                    <strong>changefinal [значение]</strong>
+                    <div class="help-description">Изменить конечный порог схожести</div>
+                </div>
+                <div class="help-item">
+                    <strong>changecomposite [значение]</strong>
+                    <div class="help-description">Изменить веса композитного сходства</div>
+                </div>
+            </div>
+            
+            <div class="help-section">
+                <h5>Общее</h5>
+                <div class="help-item">
+                    <strong>help</strong>
+                    <div class="help-description">Показать помощь</div>
+                </div>
+                <div class="help-item">
+                    <strong>about</strong>
+                    <div class="help-description">Информация о боте</div>
+                </div>
+                <div class="help-item">
+                    <strong>conf</strong>
+                    <div class="help-description">Показать текущую конфигурацию</div>
+                </div>
+                <div class="help-item">
+                    <strong>setobjectdata [данные]</strong>
+                    <div class="help-description">Указать метаданные об объекте</div>
+                </div>
+                <div class="help-item">
+                    <strong>getlogs</strong>
+                    <div class="help-description">Показать логи бота</div>
+                </div>
+            </div>
+            
+            <div class="help-section">
+                <h5>Таблицы</h5>
+                <div class="help-item">
+                    <strong>setsheetname [имя]</strong>
+                    <div class="help-description">Изменить наименование листа таблицы</div>
+                </div>
+                <div class="help-item">
+                    <strong>setsheetid [ID]</strong>
+                    <div class="help-description">Изменить идентификатор таблицы</div>
+                </div>
+                <div class="help-item">
+                    <strong>xlsx</strong>
+                    <div class="help-description">Сгенерировать файл XLSX таблицы с результатами</div>
+                </div>
+                <div class="help-item">
+                    <strong>setxlsxcolumns [JSON]</strong>
+                    <div class="help-description">Установить конфигурацию колонок для XLSX-файла</div>
+                </div>
+                <div class="help-item">
+                    <strong>showxlsxcolumns</strong>
+                    <div class="help-description">Показать текущую конфигурацию колонок для XLSX-файла</div>
+                </div>
+                <div class="help-item">
+                    <strong>togglepushtogoogle</strong>
+                    <div class="help-description">Переключить отправку результатов в Google таблицу</div>
+                </div>
+            </div>
+            
+            <div class="help-section">
+                <h5>Телеграм</h5>
+                <div class="help-item">
+                    <strong>togglepublic</strong>
+                    <div class="help-description">Включить или выключить публичный доступ к боту</div>
+                </div>
+                <div class="help-item">
+                    <strong>adduser [ID]</strong>
+                    <div class="help-description">Добавить пользователя по ID</div>
+                </div>
+                <div class="help-item">
+                    <strong>rmuser [ID]</strong>
+                    <div class="help-description">Убрать доступ пользователю по ID</div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -33,14 +302,76 @@
         const loginForm = document.getElementById("login-form");
         const chatContainer = document.getElementById("chat-container");
         const commandInput = document.getElementById("command");
-        const sendButton = document.querySelector("#chat-container button");
+        const sendButton = document.getElementById("send-btn");
         const statusDiv = document.getElementById("status");
+        const themeToggle = document.getElementById("theme-toggle");
+        const sidebarToggle = document.getElementById("sidebar-toggle");
+        const sidebarClose = document.getElementById("sidebar-close");
+        const sidebar = document.getElementById("sidebar");
+        const welcomeMessage = document.getElementById("welcome-message");
+        const commandSuggestions = document.getElementById("command-suggestions");
+        
+        // Доступные команды для автозаполнения
+        const availableCommands = [
+            { name: "do", description: "Анализировать статью по URL", example: "do https://example.com" },
+            { name: "help", description: "Показать помощь", example: "help" },
+            { name: "changeobj", description: "Изменить объект анализа", example: "changeobj Новый объект" },
+            { name: "generatespreadsheet", description: "Сгенерировать таблицу с результатами", example: "generatespreadsheet" },
+            { name: "changevector", description: "Изменить порог векторной схожести", example: "changevector 0.75" },
+            { name: "changedays", description: "Изменить количество дней для поиска", example: "changedays 30" },
+            { name: "togglepublicity", description: "Переключить публичный доступ", example: "togglepublicity" },
+            { name: "forgetarticles", description: "Удалить все статьи из базы", example: "forgetarticles" },
+            { name: "savelocalspreadsheet", description: "Сохранить таблицу локально", example: "savelocalspreadsheet" },
+            { name: "sendlogs", description: "Показать логи", example: "sendlogs" },
+            { name: "setquerytimeout", description: "Изменить время таймаута запросов к LLM", example: "setquerytimeout 120" },
+            { name: "ask", description: "Задать общий запрос модели", example: "ask Как получить API token?" },
+            { name: "setpromptaf", description: "Изменить промпт связи", example: "setpromptaf При чем здесь {{OBJECT}}?" },
+            { name: "setpromptti", description: "Изменить промпт заголовка", example: "setpromptti Найди заголовок текста." },
+            { name: "setpromptsent", description: "Изменить промпт отношения", example: "setpromptsent Определи отношение к {{OBJECT}}." },
+            { name: "models", description: "Показать доступные модели", example: "models" },
+            { name: "setmodel", description: "Указать новую модель", example: "setmodel gemma3:12b" },
+            { name: "toggleSaveSimilar", description: "Переключить сохранение похожих статей", example: "toggleSaveSimilar" },
+            { name: "setmaxcontent", description: "Установить лимит символов", example: "setmaxcontent 340" },
+            { name: "findsimilar", description: "Определить уникальность статьи", example: "findsimilar https://example.com" },
+            { name: "loadxlsx", description: "Загрузить статьи из XLSX файла", example: "loadxlsx" },
+            { name: "about", description: "Информация о боте", example: "about" },
+            { name: "conf", description: "Показать текущую конфигурацию", example: "conf" },
+            { name: "setobjectdata", description: "Указать метаданные об объекте", example: "setobjectdata Ростов-на-Дону - город на юге России" },
+            { name: "getlogs", description: "Показать логи бота", example: "getlogs" },
+            { name: "setsheetname", description: "Изменить наименование листа таблицы", example: "setsheetname Sheet 2" },
+            { name: "setsheetid", description: "Изменить идентификатор таблицы", example: "setsheetid s0m3_1d_l1k3_k4DGHJd1" },
+            { name: "xlsx", description: "Сгенерировать файл XLSX", example: "xlsx" },
+            { name: "setxlsxcolumns", description: "Установить конфигурацию колонок", example: "setxlsxcolumns [{\"name\": \"Дата\", \"field\": \"published_at\"}]" },
+            { name: "showxlsxcolumns", description: "Показать конфигурацию колонок", example: "showxlsxcolumns" },
+            { name: "togglepushtogoogle", description: "Переключить отправку в Google таблицу", example: "togglepushtogoogle" },
+            { name: "togglepublic", description: "Переключить публичный доступ", example: "togglepublic" },
+            { name: "adduser", description: "Добавить пользователя по ID", example: "adduser 5293210034" },
+            { name: "rmuser", description: "Убрать доступ пользователю", example: "rmuser 5293210034" },
+            { name: "changefinal", description: "Изменить конечный порог схожести", example: "changefinal 0.85" },
+            { name: "changecomposite", description: "Изменить веса композитного сходства", example: "changecomposite 0.6" }
+        ];
+        
+        // Проверка сохраненной темы
+        if (localStorage.getItem('darkMode') === 'true') {
+            document.body.classList.add('dark-mode');
+            themeToggle.innerHTML = '<i class="bi bi-sun-fill"></i>';
+        }
         
         // Показываем форму логина
         loginForm.style.display = "block";
         
+        // Обработчик формы логина
+        document.getElementById('login-form-inner').addEventListener('submit', function(e) {
+            e.preventDefault();
+            login();
+        });
+        
         function connectWebSocket() {
-            socket = new WebSocket("ws://" + window.location.host + "/ws");
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const host = window.location.host;
+            const wsUrl = `${protocol}//${host}/ws`;
+            
+            socket = new WebSocket(wsUrl);
             
             socket.onmessage = function(event) {
                 const data = JSON.parse(event.data);
@@ -49,16 +380,23 @@
             
             socket.onopen = function() {
                 console.log("WebSocket connected");
-                updateStatus("Соединение: активно", "status");
+                updateStatus("Соединение: активно", "status connected");
                 commandInput.disabled = false;
                 sendButton.disabled = false;
+                sendButton.style.cursor = "pointer";
+                
+                // Скрываем приветственное сообщение, если есть история
+                if (chat.children.length > 0) {
+                    welcomeMessage.style.display = "none";
+                }
             };
             
             socket.onclose = function() {
                 console.log("WebSocket disconnected");
-                updateStatus("Соединение: отключено (переподключение через 5 сек...)", "error");
+                updateStatus("Соединение: отключено (переподключение через 5 сек...)", "status error");
                 commandInput.disabled = true;
                 sendButton.disabled = true;
+                sendButton.style.cursor = "not-allowed";
                 
                 // Пытаемся переподключиться через 5 секунд
                 setTimeout(connectWebSocket, 5000);
@@ -66,7 +404,7 @@
             
             socket.onerror = function(error) {
                 console.log("WebSocket error:", error);
-                updateStatus("Ошибка соединения", "error");
+                updateStatus("Ошибка соединения", "status error");
             };
         }
         
@@ -79,27 +417,66 @@
         }
         
         function addMessage(msg) {
+            // Скрываем приветственное сообщение при первом сообщении
+            welcomeMessage.style.display = "none";
+            
             const div = document.createElement("div");
             div.className = "message";
             
+            // Добавляем время
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+            
             switch(msg.type) {
                 case "analysis":
-                    div.innerHTML = `<strong>Результат:</strong><br>${msg.content.replace(/\n/g, '<br>')}`;
+                    div.classList.add("analysis");
+                    div.innerHTML = `
+                        <div class="d-flex justify-content-between">
+                            <strong><i class="bi bi-file-earmark-text me-1"></i> Ответ</strong>
+                            <small class="text-muted">${timeStr}</small>
+                        </div>
+                        <div class="mt-2 analysis-content">${msg.content}</div>
+                    `;
                     break;
+                // остальные типы сообщений остаются без изменений
                 case "log":
-                    div.className += " log";
-                    div.textContent = msg.content;
+                    div.classList.add("log");
+                    div.innerHTML = `
+                        <div class="d-flex justify-content-between">
+                            <i class="bi bi-terminal me-1"></i> ${msg.content}
+                            <small class="text-muted">${timeStr}</small>
+                        </div>
+                    `;
                     break;
                 case "error":
-                    div.className += " error";
-                    div.textContent = msg.content;
+                    div.classList.add("error");
+                    div.innerHTML = `
+                        <div class="d-flex justify-content-between">
+                            <i class="bi bi-exclamation-triangle me-1"></i> ${msg.content}
+                            <small class="text-muted">${timeStr}</small>
+                        </div>
+                    `;
                     break;
                 case "status":
-                    div.className += " status";
-                    div.textContent = msg.content;
+                    div.classList.add("status");
+                    div.innerHTML = `
+                        <div class="d-flex justify-content-between">
+                            <i class="bi bi-info-circle me-1"></i> ${msg.content}
+                            <small class="text-muted">${timeStr}</small>
+                        </div>
+                    `;
+                    break;
+                case "command":
+                    div.classList.add("sent");
+                    div.innerHTML = `
+                        <div class="d-flex justify-content-between">
+                            <strong>Вы:</strong> ${msg.content}
+                            <small class="text-muted">${timeStr}</small>
+                        </div>
+                    `;
                     break;
                 default:
-                    div.textContent = msg.content;
+                    div.innerHTML = msg.content;
             }
             
             chat.appendChild(div);
@@ -122,8 +499,13 @@
                     loginForm.style.display = "none";
                     chatContainer.style.display = "block";
                     addMessage({type: "status", content: "Авторизация успешна"});
+                    
+                    // Добавляем небольшую задержку перед отправкой сообщения
+                    setTimeout(() => {
+                        addMessage({type: "status", content: "Подключение к серверу ACASbot..."});
+                    }, 500);
                 } else {
-                    addMessage({type: "error", content: "Ошибка авторизации"});
+                    addMessage({type: "error", content: "Ошибка авторизации: Неверный логин или пароль"});
                 }
             })
             .catch(err => {
@@ -132,36 +514,166 @@
         }
         
         function sendCommand() {
+            commandSuggestions.style.display = "none";
+
             const command = commandInput.value.trim();
             
             if (!command) return;
-            
-            if (socket.readyState !== WebSocket.OPEN) {
-                addMessage({type: "error", content: "Ошибка: соединение не активно"});
-                return;
-            }
-            
-            try {
+
+            if (socket && socket.readyState === WebSocket.OPEN) {
                 socket.send(JSON.stringify({
                     type: "command",
                     content: command
                 }));
                 
                 addMessage({
-                    type: "message",
-                    content: command,
-                    from: "Вы"
+                    type: "command",
+                    content: command
                 });
                 
                 commandInput.value = "";
-            } catch (err) {
-                addMessage({type: "error", content: "Ошибка отправки команды: " + err.message});
+                commandSuggestions.style.display = "none";
+            } else {
+                commandInput.value = "";
+                addMessage({type: "error", content: "Ошибка: соединение не активно"});
             }
         }
         
         // Отправка по Enter
-        commandInput.addEventListener("keypress", e => {
-            if (e.key === "Enter") sendCommand();
+        commandInput.addEventListener("keydown", function(e) {
+            if (e.key === "Enter") {
+                e.preventDefault();
+                sendCommand();
+            }
+        });
+        
+        // Обработчик отправки
+        sendButton.addEventListener("click", sendCommand);
+        
+        // Переключение темы
+        themeToggle.addEventListener("click", () => {
+            document.body.classList.toggle("dark-mode");
+            const isDarkMode = document.body.classList.contains("dark-mode");
+            localStorage.setItem('darkMode', isDarkMode);
+            
+            if (isDarkMode) {
+                themeToggle.innerHTML = '<i class="bi bi-sun-fill"></i>';
+            } else {
+                themeToggle.innerHTML = '<i class="bi bi-moon-stars-fill"></i>';
+            }
+        });
+        
+        // Обработчик автозаполнения
+        commandInput.addEventListener("input", function() {
+            const input = this.value.trim();
+            
+            if (input === "") {
+                commandSuggestions.style.display = "none";
+                return;
+            }
+            
+            const filteredCommands = availableCommands.filter(cmd => 
+                cmd.name.toLowerCase().startsWith(input.toLowerCase()) ||
+                cmd.description.toLowerCase().includes(input.toLowerCase())
+            );
+            
+            if (filteredCommands.length > 0) {
+                commandSuggestions.innerHTML = "";
+                commandSuggestions.style.display = "block";
+                
+                filteredCommands.forEach((cmd, index) => {
+                    const item = document.createElement("div");
+                    item.className = "suggestion-item";
+                    if (index === 0) item.classList.add("active");
+                    
+                    item.innerHTML = `
+                        <strong>${cmd.name}</strong>
+                        <div class="suggestion-description">${cmd.description}</div>
+                        <small class="text-muted">${cmd.example}</small>
+                    `;
+                    
+                    item.addEventListener("click", () => {
+                        commandInput.value = cmd.example;
+                        commandSuggestions.style.display = "none";
+                        commandInput.focus();
+                    });
+                    
+                    commandSuggestions.appendChild(item);
+                });
+            } else {
+                commandSuggestions.style.display = "none";
+            }
+        });
+        
+        // Навигация по автозаполнению с клавиатуры
+        commandInput.addEventListener("keydown", function(e) {
+            const items = document.querySelectorAll(".suggestion-item");
+            if (items.length === 0) return;
+            
+            let activeIndex = -1;
+            
+            for (let i = 0; i < items.length; i++) {
+                if (items[i].classList.contains("active")) {
+                    activeIndex = i;
+                    break;
+                }
+            }
+            
+            if (e.key === "ArrowDown") {
+                e.preventDefault();
+                if (activeIndex < items.length - 1) {
+                    if (activeIndex >= 0) items[activeIndex].classList.remove("active");
+                    activeIndex++;
+                    items[activeIndex].classList.add("active");
+                }
+            } else if (e.key === "ArrowUp") {
+                e.preventDefault();
+                if (activeIndex > 0) {
+                    items[activeIndex].classList.remove("active");
+                    activeIndex--;
+                    items[activeIndex].classList.add("active");
+                }
+            } else if (e.key === "Enter" && activeIndex >= 0) {
+                e.preventDefault();
+                const activeItem = items[activeIndex];
+                const example = activeItem.querySelector(".text-muted").textContent;
+                commandInput.value = example;
+                commandSuggestions.style.display = "none";
+                commandInput.focus();
+            }
+        });
+        
+        // Закрытие автозаполнения при клике вне поля
+        document.addEventListener("click", function(e) {
+            if (e.target !== commandInput) {
+                commandSuggestions.style.display = "none";
+            }
+        });
+        
+        // Функция для вставки команды
+        window.insertCommand = function(command) {
+            commandInput.value = command;
+            commandInput.focus();
+        };
+        
+        // Обработчик справки
+        document.getElementById("help-toggle").addEventListener("click", function() {
+            sidebar.classList.add("open");
+        });
+        
+        sidebarToggle.addEventListener("click", function() {
+            sidebar.classList.add("open");
+        });
+        
+        sidebarClose.addEventListener("click", function() {
+            sidebar.classList.remove("open");
+        });
+        
+        // Закрытие сайдбара при клике вне его области
+        document.addEventListener("click", function(e) {
+            if (!sidebar.contains(e.target) && !e.target.closest("#sidebar-toggle") && !e.target.closest("#help-toggle")) {
+                sidebar.classList.remove("open");
+            }
         });
     </script>
 </body>

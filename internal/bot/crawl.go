@@ -94,9 +94,11 @@ func (bot *Bot) ExtractWebContent(articleURL string) (*domain.Article, error) {
 	}
 
 	if doc != nil && doc.ContentText != "" {
-		var pubTime *time.Time
+		var pubTime time.Time
 		if !doc.Metadata.Date.IsZero() {
-			pubTime = &doc.Metadata.Date
+			pubTime = doc.Metadata.Date
+		} else {
+			pubTime = time.Now()
 		}
 
 		return &domain.Article{

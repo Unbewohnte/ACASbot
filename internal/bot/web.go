@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -9,9 +10,36 @@ import (
 	"sync"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
+	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/extension"
+	"github.com/yuin/goldmark/parser"
+	"github.com/yuin/goldmark/renderer/html"
 )
+
+// RenderMarkdown преобразует Markdown в безопасный HTML
+func RenderMarkdown(markdown string) (string, error) {
+	md := goldmark.New(
+		goldmark.WithExtensions(extension.GFM, extension.DefinitionList),
+		goldmark.WithParserOptions(
+			parser.WithAutoHeadingID(),
+		),
+		goldmark.WithRendererOptions(
+			html.WithHardWraps(),
+			html.WithXHTML(),
+			html.WithUnsafe(),
+		),
+	)
+
+	var buf bytes.Buffer
+	if err := md.Convert([]byte(markdown), &buf); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
+}
 
 type WebMessage struct {
 	Type    string `json:"type"`
@@ -74,12 +102,23 @@ func (ws *WebServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 	password := r.FormValue("password")
 
 	if username == ws.bot.conf.Web.Username && password == ws.bot.conf.Web.Password {
+		token, err := ws.generateJWT()
+		if err != nil {
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		// Устанавливаем куку с дополнительными флагами безопасности
 		http.SetCookie(w, &http.Cookie{
-			Name:    "auth",
-			Value:   "authenticated",
-			Expires: time.Now().Add(24 * time.Hour),
-			Path:    "/",
+			Name:     "auth_token",
+			Value:    token,
+			Expires:  time.Now().Add(24 * time.Hour),
+			Path:     "/",
+			HttpOnly: true, // Защита от XSS
+			Secure:   false,
+			SameSite: http.SameSiteStrictMode, // Защита от CSRF
 		})
+
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -88,9 +127,22 @@ func (ws *WebServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (ws *WebServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
-	// Check authentication
-	cookie, err := r.Cookie("auth")
-	if err != nil || cookie.Value != "authenticated" {
+	// Проверка аутентификации через JWT
+	cookie, err := r.Cookie("auth_token")
+	if err != nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	token, err := ws.validateJWT(cookie.Value)
+	if err != nil || !token.Valid {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	// Дополнительная проверка: убедимся, что токен предназначен для этого пользователя
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok || claims["username"] != ws.bot.conf.Web.Username {
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
@@ -198,7 +250,7 @@ func (ws *WebServer) handleCommand(cmd string) {
 				ws.SendLog("Error executing command: " + err.Error())
 				return
 			}
-			ws.SendAnalysisResult(response)
+			ws.SendResponse(response)
 			return
 		}
 	}
@@ -213,16 +265,40 @@ func (ws *WebServer) handleCommand(cmd string) {
 				ws.SendLog("Error executing do command: " + err.Error())
 				return
 			}
-			ws.SendAnalysisResult(response)
+			ws.SendResponse(response)
 		}
+	} else {
+		// Такой команды просто нет
+		var response string
+
+		similarCommands := ws.bot.findSimilarCommands(cmd)
+		if len(similarCommands) == 0 {
+			response = fmt.Sprintf("Команды `%s` не существует.", cmd)
+		} else {
+			response = "Неизвестная команда. Возможно, имеется в виду одна из этих команд:\n"
+			for _, cmd := range similarCommands {
+				command := ws.bot.CommandByName(cmd)
+				if command != nil {
+					response += fmt.Sprintf("`%s` - %s\n", command.Name, command.Description)
+				}
+			}
+		}
+
+		ws.SendLog(response)
 	}
 }
 
-// SendAnalysisResult sends analysis results to web clients
-func (ws *WebServer) SendAnalysisResult(result string) {
+func (ws *WebServer) SendResponse(result string) {
+	// Преобразуем Markdown в HTML
+	html, err := RenderMarkdown(result)
+	if err != nil {
+		// В случае ошибки рендеринга, отправляем как простой текст с заменой \n на <br>
+		html = strings.ReplaceAll(result, "\n", "<br>")
+	}
+
 	ws.broadcast(WebMessage{
 		Type:    "analysis",
-		Content: result,
+		Content: html,
 	})
 }
 
@@ -234,14 +310,23 @@ func (ws *WebServer) SendLog(log string) {
 	})
 }
 
-func recoveryMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		defer func() {
-			if err := recover(); err != nil {
-				log.Printf("Panic recovered: %v", err)
-				http.Error(w, "Internal server error", http.StatusInternalServerError)
-			}
-		}()
-		next.ServeHTTP(w, r)
+func (ws *WebServer) generateJWT() (string, error) {
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"username": ws.bot.conf.Web.Username,
+		"exp":      time.Now().Add(24 * time.Hour).Unix(),
+		"iat":      time.Now().Unix(),
+		"jti":      uuid.New().String(), // Уникальный идентификатор токена
+	})
+
+	return token.SignedString([]byte(ws.bot.conf.Web.JWTSecret))
+}
+
+func (ws *WebServer) validateJWT(tokenString string) (*jwt.Token, error) {
+	return jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		// Проверяем метод подписи
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return []byte(ws.bot.conf.Web.JWTSecret), nil
 	})
 }

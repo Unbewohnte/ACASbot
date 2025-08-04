@@ -491,8 +491,8 @@ func (bot *Bot) handleTelegramCommand(command *Command, msg *tgbotapi.Message) {
 		// Убрать имя команды
 		parts := strings.Split(strings.TrimSpace(msg.Text), " ")
 		if len(parts) < 2 {
-			// Пробуем как есть
-			args = parts[0]
+			// Это команда без аргументов
+			args = ""
 		} else {
 			args = strings.Join(parts[1:], " ")
 		}

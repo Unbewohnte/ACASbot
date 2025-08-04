@@ -6,6 +6,7 @@ require (
 	github.com/chromedp/cdproto v0.0.0-20250706212322-41fb261d0659
 	github.com/chromedp/chromedp v0.13.7
 	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
+	github.com/google/uuid v1.6.0
 	github.com/tealeg/xlsx v1.0.5
 	github.com/tealeg/xlsx/v3 v3.3.13
 	google.golang.org/api v0.238.0
@@ -36,7 +37,6 @@ require (
 	github.com/google/btree v1.0.0 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.6 // indirect
 	github.com/googleapis/gax-go/v2 v2.14.2 // indirect
 	github.com/hablullah/go-hijri v1.0.2 // indirect
@@ -79,10 +79,12 @@ require (
 
 require (
 	github.com/PuerkitoBio/goquery v1.10.3
+	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.3
 	github.com/markusmobius/go-trafilatura v1.12.2
 	github.com/ollama/ollama v0.9.0
+	github.com/yuin/goldmark v1.7.13
 	golang.org/x/crypto v0.39.0 // indirect
 	golang.org/x/oauth2 v0.30.0
 	golang.org/x/sys v0.33.0 // indirect

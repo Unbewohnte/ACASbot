@@ -50,10 +50,9 @@ func constructCommandHelpMessage(command Command) string {
 }
 
 func (bot *Bot) Help(args string) (string, error) {
-	parts := strings.Split(args, " ")
-	if len(parts) > 0 {
+	if strings.TrimSpace(args) != "" {
 		// Ответить лишь по конкретной команде
-		command := bot.CommandByName(parts[0])
+		command := bot.CommandByName(args)
 		if command != nil {
 			return constructCommandHelpMessage(*command), nil
 		}

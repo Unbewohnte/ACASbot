@@ -77,10 +77,11 @@ type AnalysisConf struct {
 }
 
 type WebConf struct {
-	Enabled  bool   `json:"enabled"`
-	Port     int    `json:"port"`
-	Username string `json:"username"`
-	Password string `json:"password"`
+	Enabled   bool   `json:"enabled"`
+	JWTSecret string `json:"jwt_secret"`
+	Port      int    `json:"port"`
+	Username  string `json:"username"`
+	Password  string `json:"password"`
 }
 
 type Config struct {
@@ -190,10 +191,11 @@ func DefaultConfig() *Config {
 			File: "ACASBOT.sqlite3",
 		},
 		Web: WebConf{
-			Enabled:  true,
-			Port:     8080,
-			Username: "admin",
-			Password: "secret",
+			Enabled:   true,
+			JWTSecret: "jwt_secret",
+			Port:      8080,
+			Username:  "admin",
+			Password:  "secret",
 		},
 		Debug:    false,
 		LogsFile: "logs.txt",
