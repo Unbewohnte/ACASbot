@@ -45,7 +45,7 @@ func GenerateFromDatabase(articles []domain.Article) (*bytes.Buffer, error) {
 	headerRow := sheet.AddRow()
 	headers := []string{
 		"Дата добавления", "Дата публикации", "Ресурс", "Заголовок", "URL",
-		"Примечание", "Тональность", "Цитирований", "Похожие статьи",
+		"Примечание", "Тональность", "Цитирований", "Похожие статьи", "Оригинал?",
 	}
 	for _, h := range headers {
 		cell := headerRow.AddCell()
