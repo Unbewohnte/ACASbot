@@ -487,6 +487,36 @@ func (bot *Bot) handleTelegramCommand(command *Command, msg *tgbotapi.Message) {
 			bot.sendMessage(msg.Chat.ID, "Таблица успешно сгенерирована и отправлена", msg.MessageID)
 			return
 		}
+	case "getlogs":
+		// Проверяем, существует ли файл логов
+		if _, err := os.Stat(bot.conf.LogsFile); os.IsNotExist(err) {
+			bot.sendError(msg.Chat.ID, "Файл логов не найден", msg.MessageID)
+			return
+		}
+
+		// Проверяем размер файла
+		fileInfo, err := os.Stat(bot.conf.LogsFile)
+		if err != nil {
+			bot.sendError(msg.Chat.ID, "Ошибка проверки размера файла: "+err.Error(), msg.MessageID)
+			return
+		}
+
+		// Telegram имеет ограничение на размер файла - 50MB
+		if fileInfo.Size() > 50*1024*1024 { // 50MB
+			bot.sendError(msg.Chat.ID, "Файл логов слишком большой (максимум 50MB)", msg.MessageID)
+			return
+		}
+
+		// Отправляем файл логов
+		file := tgbotapi.NewDocument(msg.Chat.ID, tgbotapi.FilePath(bot.conf.LogsFile))
+		file.Caption = "📄 Файл логов ACASbot"
+		file.ReplyToMessageID = msg.MessageID
+
+		_, err = bot.api.Send(file)
+		if err != nil {
+			bot.sendError(msg.Chat.ID, "Ошибка отправки файла логов: "+err.Error(), msg.MessageID)
+			return
+		}
 	default:
 		// Убрать имя команды
 		parts := strings.Split(strings.TrimSpace(msg.Text), " ")

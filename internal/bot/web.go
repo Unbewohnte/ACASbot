@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -77,6 +78,9 @@ func (ws *WebServer) Start() {
 
 	// Login endpoint
 	r.HandleFunc("/login", ws.handleLogin).Methods("POST")
+
+	r.HandleFunc("/download/logs", ws.handleDownloadLogs).Methods("GET")
+	r.HandleFunc("/download/xlsx", ws.handleDownloadXLSX).Methods("GET")
 
 	// Static files
 	r.PathPrefix("/").Handler(http.FileServer(http.Dir("./web")))
@@ -241,6 +245,48 @@ func (ws *WebServer) handleCommand(cmd string) {
 	commandName := strings.ToLower(strings.TrimPrefix(parts[0], "/"))
 	args := strings.Join(parts[1:], " ")
 
+	// Специальная обработка для getlogs
+	if commandName == "getlogs" {
+		// Проверяем, существует ли файл логов
+		if _, err := os.Stat(ws.bot.conf.LogsFile); os.IsNotExist(err) {
+			ws.SendLog("Файл логов не найден")
+			return
+		}
+
+		// Формируем HTML-ссылку для скачивания
+		response := `<div class="download-container">
+            <p>Логи доступны для скачивания:</p>
+            <a href="/download/logs" target="_blank" class="download-btn">
+                <i class="bi bi-download me-2"></i>Скачать логи
+            </a>
+        </div>`
+		ws.SendResponse(response)
+		return
+	}
+
+	// Специальная обработка для xlsx
+	if commandName == "xlsx" {
+		// Проверяем, существует ли файл таблицы
+		fileName := "ACASbot_Results.xlsx"
+		if _, err := os.Stat(fileName); os.IsNotExist(err) {
+			_, err := ws.bot.GenerateSpreadsheet("")
+			if err != nil {
+				ws.SendLog("Не вышло сгенерировать локальную таблицу: " + err.Error())
+				return
+			}
+		}
+
+		// Формируем HTML-ссылку для скачивания
+		response := `<div class="download-container">
+            <p>Таблица результатов доступна для скачивания:</p>
+            <a href="/download/xlsx" target="_blank" class="download-btn">
+                <i class="bi bi-file-earmark-spreadsheet me-2"></i>Скачать таблицу
+            </a>
+        </div>`
+		ws.SendResponse(response)
+		return
+	}
+
 	// Ищем и вызываем команду
 	for _, command := range ws.bot.commands {
 		if command.Name == commandName {
@@ -329,4 +375,61 @@ func (ws *WebServer) validateJWT(tokenString string) (*jwt.Token, error) {
 		}
 		return []byte(ws.bot.conf.Web.JWTSecret), nil
 	})
+}
+
+func (ws *WebServer) handleDownloadLogs(w http.ResponseWriter, r *http.Request) {
+	// Проверка аутентификации через JWT
+	cookie, err := r.Cookie("auth_token")
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	_, err = ws.validateJWT(cookie.Value)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Проверяем, существует ли файл логов
+	if _, err := os.Stat(ws.bot.conf.LogsFile); os.IsNotExist(err) {
+		http.Error(w, "Log file not found", http.StatusNotFound)
+		return
+	}
+
+	// Устанавливаем заголовки для скачивания
+	w.Header().Set("Content-Disposition", "attachment; filename=acasbot_logs.txt")
+	w.Header().Set("Content-Type", "text/plain")
+
+	// Отправляем файл
+	http.ServeFile(w, r, ws.bot.conf.LogsFile)
+}
+
+func (ws *WebServer) handleDownloadXLSX(w http.ResponseWriter, r *http.Request) {
+	// Проверка аутентификации через JWT
+	cookie, err := r.Cookie("auth_token")
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	_, err = ws.validateJWT(cookie.Value)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Проверяем, существует ли файл таблицы
+	fileName := "ACASbot_Results.xlsx"
+	if _, err := os.Stat(fileName); os.IsNotExist(err) {
+		http.Error(w, "XLSX file not found", http.StatusNotFound)
+		return
+	}
+
+	// Устанавливаем заголовки для скачивания
+	w.Header().Set("Content-Disposition", "attachment; filename=ACASbot_Results.xlsx")
+	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+	// Отправляем файл
+	http.ServeFile(w, r, fileName)
 }
