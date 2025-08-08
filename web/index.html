@@ -117,7 +117,7 @@
                         
                         <div class="command-input-container p-3 border-top">
                             <div class="position-relative" style="flex: 1;">
-                                <input type="text" id="command" class="form-control" placeholder="Введите команду или URL...">
+                                <input type="text" id="command" class="form-control" placeholder="Введите команду или URL..." autocomplete="off">
                                 <div class="command-suggestions" id="command-suggestions" style="display: none;"></div>
                             </div>
                             <button class="send-btn" id="send-btn" title="Отправить команду">
@@ -634,13 +634,6 @@
                     activeIndex--;
                     items[activeIndex].classList.add("active");
                 }
-            } else if (e.key === "Enter" && activeIndex >= 0) {
-                e.preventDefault();
-                const activeItem = items[activeIndex];
-                const example = activeItem.querySelector(".text-muted").textContent;
-                commandInput.value = example;
-                commandSuggestions.style.display = "none";
-                commandInput.focus();
             }
         });
         
