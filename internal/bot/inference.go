@@ -74,12 +74,26 @@ func (bot *Bot) querySentiment(content string) (string, error) {
 func extractSentiment(response string) string {
 	response = strings.ToLower(response)
 
-	switch {
-	case strings.Contains(response, "позитив"):
+	if matchesAny(response, "позитив", "полож", "доброжелательн", "благоприятн", "поддерживающ", "дружелюбн", "восторжен", "одобритель") {
 		return "Позитивный"
-	case strings.Contains(response, "негатив") || strings.Contains(response, "отрицат"):
+	}
+
+	if matchesAny(response, "негатив", "отрицат", "критическ", "осуждающ", "агрессивн", "враждебн", "презрительн", "гнев", "недовол", "вражд") {
 		return "Отрицательный"
-	default:
+	}
+
+	if matchesAny(response, "нейтральн", "информационн", "объективн", "фактическ", "безоценочн", "аналитическ", "нейтрален", "нет мнения", "не выражено", "не определено") {
 		return "Информационный"
 	}
+
+	return "Информационный"
+}
+
+func matchesAny(text string, substrs ...string) bool {
+	for _, substr := range substrs {
+		if strings.Contains(text, substr) {
+			return true
+		}
+	}
+	return false
 }
