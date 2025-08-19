@@ -59,13 +59,15 @@ func GenerateFromDatabase(articles []domain.Article) (*bytes.Buffer, error) {
 		// Дата добавления
 		dateAdded := time.Unix(art.CreatedAt, 0)
 		cell := row.AddCell()
-		cell.Value = formatDate(dateAdded)
+		cell.SetDate(dateAdded)
+		// cell.Value = formatDate(dateAdded)
 
 		// Дата публикации
 		if art.PublishedAt > 0 {
 			pubDate := time.Unix(art.PublishedAt, 0)
 			cell = row.AddCell()
-			cell.Value = formatDate(pubDate)
+			cell.SetDate(pubDate)
+			// cell.Value = formatDate(pubDate)
 		} else {
 			row.AddCell()
 		}
