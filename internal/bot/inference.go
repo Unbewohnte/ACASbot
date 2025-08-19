@@ -82,11 +82,11 @@ func extractSentiment(response string) string {
 		return "Отрицательный"
 	}
 
-	if matchesAny(response, "нейтральн", "информационн", "объективн", "фактическ", "безоценочн", "аналитическ", "нейтрален", "нет мнения", "не выражено", "не определено") {
+	if matchesAny(response, "нейтральн", "информационн", "объективн", "фактическ", "аналитическ", "нейтрален") {
 		return "Информационный"
 	}
 
-	return "Информационный"
+	return "Не определено"
 }
 
 func matchesAny(text string, substrs ...string) bool {
