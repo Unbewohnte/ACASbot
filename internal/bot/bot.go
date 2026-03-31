@@ -36,7 +36,7 @@ func NewBot(config *Config) (*Bot, error) {
 
 	api, err := tgbotapi.NewBotAPI(config.Telegram.ApiToken)
 	if err != nil {
-		return nil, err
+		log.Printf("ВНИМАНИЕ: Не удалось подключиться к Telegram API (%v). Telegram-модуль будет отключен.", err)
 	}
 
 	bot := &Bot{
@@ -302,6 +302,20 @@ func (bot *Bot) init() {
 
 func (bot *Bot) Start() error {
 	bot.init()
+
+	// Если API Telegram не был инициализирован, переходим в локальный режим
+	if bot.api == nil {
+		log.Println("Работа без Telegram")
+		if !bot.conf.Web.Enabled {
+			log.Println("ВНИМАНИЕ: Веб-сервер выключен в конфигурации. Бот работает вхолостую.")
+		} else {
+			log.Println("Используйте веб-интерфейс для взаимодействия с ботом.")
+		}
+
+		// Блокируем горутину, чтобы приложение не завершилось (веб-сервер работает в фоне)
+		select {}
+		return nil
+	}
 
 	log.Printf("Бот авторизован как %s", bot.api.Self.UserName)
 
