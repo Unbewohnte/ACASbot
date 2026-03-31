@@ -22,6 +22,7 @@ import (
 	"Unbewohnte/ACASbot/internal/domain"
 	"Unbewohnte/ACASbot/internal/similarity"
 	"fmt"
+	"log"
 	"sort"
 	"time"
 
@@ -134,6 +135,11 @@ func (bot *Bot) sendSuccess(chatID int64, text string, replyTo int) {
 }
 
 func (bot *Bot) sendMessage(chatID int64, text string, replyTo int) {
+	if bot.api == nil {
+		log.Println("Telegram отключен. Пропущена отправка сообщения:", text)
+		return
+	}
+
 	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ReplyToMessageID = replyTo
 	msg.ParseMode = "Markdown"
